@@ -1,0 +1,22 @@
+[
+  {
+    "id": "1",
+    "uuid": "abc1",
+    "name": "TEST 1"
+  },
+  {
+    "id": "2",
+    "uuid": "abc2",
+    "name": "TEST 2"
+  },
+  {
+    "id": "3",
+    "uuid": "abc3",
+    "name": "TEST 3"
+  },
+  {
+    "id": "4",
+    "uuid": "abc4",
+    "name": "TEST 4"
+  }
+]

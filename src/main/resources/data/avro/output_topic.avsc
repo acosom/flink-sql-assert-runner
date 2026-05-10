@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "Input",
+  "namespace": "test.example",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string"
+    },
+    {
+      "name": "uuid",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ]
+}
