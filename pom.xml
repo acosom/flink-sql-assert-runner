@@ -258,6 +258,7 @@
                     <argLine>${jvm.add.opens}</argLine>
                     <systemPropertyVariables>
                         <api.version>1.45</api.version>
+                        <flink.version>${flink.version}</flink.version>
                     </systemPropertyVariables>
                 </configuration>
                 <executions>
