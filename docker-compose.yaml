@@ -103,7 +103,7 @@ services:
   ## the JobManager and submitted via Flink's REST API by flink-sql-assert-runner.
   jobmanager:
     container_name: jobmanager
-    image: flink:1.17.2-scala_2.12-java11
+    image: flink:1.20.4-scala_2.12-java17
     ports:
       - "8081:8081"
     volumes:
@@ -122,7 +122,7 @@ services:
 
   taskmanager:
     container_name: taskmanager
-    image: flink:1.17.2-scala_2.12-java11
+    image: flink:1.20.4-scala_2.12-java17
     depends_on:
       - jobmanager
     command: taskmanager
