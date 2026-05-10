@@ -18,6 +18,29 @@ License: Apache 2.0.
 
 ---
 
+## Flink version compatibility
+
+The runner ships Flink client libraries that talk to your cluster (REST API,
+RPC serializers, SQL parser). Protocol and API surface drifts between Flink
+minor releases, so **a runner build is pinned to one Flink major.minor and
+will not work against other Flink versions**.
+
+Pick the branch and tag matching your cluster's Flink:
+
+| Branch         | Flink line | Java | Maven version           | Tag prefix          |
+|----------------|------------|------|-------------------------|---------------------|
+| `main`         | 2.0.x      | 17   | `0.1.0-flink-2.0`       | `vX.Y.Z-flink-2.0`  |
+| `flink-1.20`   | 1.20.x     | 17   | `0.1.0-flink-1.20`      | `vX.Y.Z-flink-1.20` |
+
+- Patch-level Flink bumps (e.g. 2.0.1 → 2.0.2) **do not** require a runner
+  rebuild — same runner tag works.
+- Minor bumps (1.20 → 1.21) or major bumps (1.x → 2.x) **do** — switch to the
+  runner branch matching your target Flink.
+- Bug fixes land first on `main`, then get cherry-picked to maintained
+  `flink-X.Y` branches.
+
+---
+
 ## Table of contents
 
 - [How it works](#how-it-works)
@@ -94,35 +117,40 @@ required.
 
 ## Quick start (Docker Compose)
 
-A reference Compose file is included that boots Kafka, an Apicurio Schema
-Registry (Confluent-compatible), Kafka UI, and a Flink session cluster.
+A reference `docker-compose.yaml` boots Kafka, an Apicurio Schema Registry
+(Confluent-compatible), Kafka UI, and a Flink session cluster on the
+Flink-version that matches this branch.
 
-1. Drop your Flink SQL job JAR (the one that reads SQL files and submits them
-   as Flink jobs — bring your own, e.g. one built from
+1. **Drop your Flink SQL job JAR into `./flink-jars/`.** This is the JAR your
+   cluster will run — typically a SQL-runner that takes a SQL file path as
+   its argument (e.g. one built from
    [`flink-sql-runner`](https://github.com/getindata/flink-sql-runner) or your
-   own implementation) into `./flink-jars/`.
+   own implementation). The runner's `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS`
+   env var must match this JAR's main class.
 
-2. Adjust `integration.env` for your scenario (Kafka topics, Flink job entry
-   point class, etc.).
+2. **Adjust `integration.env`** for your scenario (Kafka topics, Flink job
+   entrypoint class, etc.).
 
-3. Boot the supporting services:
+3. **Boot the supporting services:**
 
     ```bash
     docker compose up -d kafka_broker apicurio jobmanager taskmanager
     ```
 
-4. Run the assert runner:
+4. **Build and run the assert runner:**
 
     ```bash
     mvn package -DskipTests
-    docker compose run --rm --build flink-sql-assert-runner
-    ```
-
-   Or run the JAR directly:
-
-    ```bash
     set -a; source integration.env; set +a
     java -jar target/flink-sql-assert-runner.jar
+    ```
+
+   Or via the Docker image:
+
+    ```bash
+    mvn jib:dockerBuild
+    docker run --rm --network=host --env-file=integration.env \
+        flink-sql-assert-runner
     ```
 
 ---
@@ -147,7 +175,7 @@ All settings come from environment variables. The CLI also accepts
 | `INTEGRATION_KAFKA_SERVER`               | yes      | Bootstrap servers, e.g. `localhost:9092`.                      |
 | `INTEGRATION_SCHEMA_REGISTRY_URL`        | yes      | Confluent-compatible Schema Registry URL.                      |
 | `INTEGRATION_FLINK_JOBMANAGER_SERVER`    | yes      | Flink JobManager REST URL, e.g. `http://localhost:8081`.       |
-| `INTEGRATION_TEST_JOB_SQL_FILE`          | yes      | SQL file to deploy (relative to the runner JAR's `/opt/flink/sql`). |
+| `INTEGRATION_TEST_JOB_SQL_FILE`          | yes      | SQL file passed as the program argument to your job JAR (resolved as `/opt/flink/sql/<value>`). |
 | `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS` | yes      | Main class of the Flink job JAR you uploaded.                  |
 | `INTEGRATION_OUTPUT_TOPICS`              | no       | Comma-separated list of sink topics to purge before each run.  |
 | `INTEGRATION_TEST_SUCCESS_TIMEOUT_MS`    | no       | Global timeout for a SQL assertion's `SELECT`. Default `10000`.|
@@ -294,8 +322,8 @@ You then write `INSERT` statements for fixture data and use the helpers
 
 - JDK 17
 - Maven 3.8+
-- Docker (only required for integration tests against the testcontainers
-  Kafka + Schema Registry suite — `mvn verify`)
+- Docker (only required for `mvn verify`, which runs the integration test
+  suite against ephemeral Kafka/Flink containers)
 
 ### Commands
 
@@ -303,7 +331,7 @@ You then write `INSERT` statements for fixture data and use the helpers
 # Compile, run unit tests
 mvn test
 
-# Compile, run unit + integration tests (slower, needs Docker)
+# Compile, run unit + IT + E2E tests (slower, needs Docker)
 mvn verify
 
 # Build the fat JAR
@@ -317,12 +345,13 @@ The fat JAR lands at `target/flink-sql-assert-runner.jar`.
 
 ### Running the test suite
 
-The repository's own test suite has two tiers:
+The repository's own test suite has three tiers:
 
-| Tier               | What it covers                                                | Runs in   |
-|--------------------|---------------------------------------------------------------|-----------|
-| Unit (`*Test.java`) | Pure-logic classes: parsing, templating, config, reporting.   | `mvn test`|
-| IT (`*IT.java`)    | Kafka end-to-end via testcontainers (Kafka + Schema Registry).| `mvn verify` |
+| Tier              | What it covers                                                                | Runs in      |
+|-------------------|-------------------------------------------------------------------------------|--------------|
+| Unit (`*Test.java`) | Pure-logic classes: parsing, templating, config, reporting.                  | `mvn test`   |
+| IT (`*IT.java`)   | Kafka publish/verify/admin against a Kafka + Schema Registry container pair.  | `mvn verify` |
+| E2E (`*IT.java` in `e2e/`) | `JobController` against a real Flink session cluster (JM + TM containers) on the version pinned in `pom.xml`. | `mvn verify` |
 
 If you're on Docker 29+ and tests fail with `client version 1.32 is too old`,
 the failsafe configuration already sets `-Dapi.version=1.45` to work around the
@@ -334,16 +363,16 @@ bundled docker-java client.
 
 ```
 src/main/java/io/acosom/flink/assertrunner/
-├── cli/             # Picocli entry point
-├── config/          # RunnerConfig record + ConfigLoader
-├── assertion/       # AssertionSpec, parser, modes/fields enums
+├── cli/             # Picocli entry point (AssertRunnerCli)
+├── config/          # RunnerConfig, IntegrationConfig, UnitConfig, ConfigLoader
+├── assertion/       # AssertionProperties, AssertionSpecParser, mode/field enums
 ├── template/        # @@VAR@@ environment templating
 ├── flink/           # JobController + SqlAssertionExecutor
 ├── kafka/           # KafkaFixtureLoader, KafkaOutputVerifier, TopicAdmin
-├── integration/     # IntegrationSuite (drives a scenario)
-├── unit/            # FlinkSqlTestCase, UnitSuiteRunner, JavaCompilerUtil
+├── integration/     # IntegrationSuite + IntegrationContext (drives a scenario)
+├── unit/            # FlinkSqlTestCase, UnitSuiteRunner, compile/JavaCompilerUtil
 ├── report/          # TextResultReporter (writes the result file)
-└── error/           # Typed exceptions
+└── error/           # Typed exceptions (AssertRunnerException et al)
 ```
 
 ---
@@ -353,7 +382,10 @@ src/main/java/io/acosom/flink/assertrunner/
 PRs welcome. Quick rules:
 
 - Run `mvn test` before pushing. If your change touches Kafka I/O,
-  also run `mvn verify`.
+  Flink REST plumbing, or the SQL assertion executor, also run `mvn verify`.
+- Pin the Flink version constraint at the top: changes that break wire/protocol
+  compatibility need to land on `main` (latest Flink) and be cherry-picked to
+  the relevant `flink-X.Y` branch with adjustments.
 - Keep public API changes deliberate — this project is pre-1.0 but downstream
   Flink SQL test suites get tied to method signatures quickly.
 - New behavior should land with a test pinning it.
