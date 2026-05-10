@@ -5,7 +5,8 @@ import org.apache.calcite.config.Lex;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.RestartStrategyOptions;
 import org.apache.flink.sql.parser.impl.FlinkSqlParserImpl;
 import org.apache.flink.sql.parser.validate.FlinkSqlConformance;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -63,8 +64,9 @@ public abstract class FlinkSqlTestCase {
         cleanupTempSpace();
         this.tempSpace = createTempSpace();
 
-        env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.getConfig().setRestartStrategy(RestartStrategies.noRestart());
+        Configuration config = new Configuration();
+        config.set(RestartStrategyOptions.RESTART_STRATEGY, "none");
+        env = StreamExecutionEnvironment.getExecutionEnvironment(config);
         env.enableCheckpointing(1000);
 
         tEnv = StreamTableEnvironment.create(env,

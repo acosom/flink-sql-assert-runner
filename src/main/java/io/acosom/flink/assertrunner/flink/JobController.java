@@ -3,7 +3,6 @@ package io.acosom.flink.assertrunner.flink;
 import io.acosom.flink.assertrunner.error.FlinkJobException;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.messages.webmonitor.JobIdsWithStatusOverview;
 import org.apache.flink.runtime.rest.RestClient;
@@ -25,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -75,7 +75,7 @@ public final class JobController implements AutoCloseable {
     @Override
     public void close() {
         try {
-            restClient.shutdown(Time.seconds(5));
+            restClient.shutdown(Duration.ofSeconds(5));
         } catch (Exception e) {
             LOG.warn("Failed to shut down Flink REST client: {}", e.getMessage());
         }
@@ -124,8 +124,14 @@ public final class JobController implements AutoCloseable {
     private JobID runJobFromJar(String jarId) {
         JarRunRequestBody body = new JarRunRequestBody(
                 entrypointClass,
-                "/opt/flink/sql/" + sqlFileInJar,
-                null, null, null, null, null, null, null);
+                List.of("/opt/flink/sql/" + sqlFileInJar),
+                null,  // parallelism
+                null,  // jobId
+                null,  // allowNonRestoredState
+                null,  // savepointPath
+                null,  // deprecatedRecoveryClaimMode
+                null,  // recoveryClaimMode
+                null); // flinkConfiguration
 
         JarRunMessageParameters params = JarRunHeaders.getInstance().getUnresolvedMessageParameters();
         params.jarIdPathParameter.resolve(jarId);
