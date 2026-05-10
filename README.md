@@ -292,7 +292,7 @@ You then write `INSERT` statements for fixture data and use the helpers
 
 ### Prerequisites
 
-- JDK 11
+- JDK 17
 - Maven 3.8+
 - Docker (only required for integration tests against the testcontainers
   Kafka + Schema Registry suite — `mvn verify`)
