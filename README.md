@@ -121,6 +121,28 @@ graph TD
     class KAFKA,FLINK,ASRT,REPORT leaf;
 ```
 
+### Runtime topology
+
+What needs to be running for an integration test, and who talks to whom:
+
+```mermaid
+architecture-beta
+    group env(cloud)[Test environment]
+
+    service runner(server)[Assert Runner] in env
+    service kafka(database)[Kafka broker] in env
+    service sr(disk)[Schema Registry] in env
+    service jm(server)[Flink JobManager] in env
+    service tm(server)[Flink TaskManager] in env
+
+    runner:R -- L:kafka
+    runner:B -- T:sr
+    runner:T -- B:jm
+    jm:R -- L:tm
+    tm:B -- T:kafka
+    tm:L -- R:sr
+```
+
 ---
 
 ## Quick start (Docker Compose)
