@@ -91,56 +91,114 @@ a SQL script in `UNIT_TEST_SQL_DIR`. The script's connector configuration
 provided by an in-process Paimon catalog — no Kafka or external services
 required.
 
-### Architecture
+### Unit testing flow
+
+You bring a Flink SQL script and a JUnit test class. The runner strips the
+script's connector configs (so it runs in-process against a Paimon catalog),
+compiles your test class, and executes it inside a `StreamTableEnvironment`.
 
 ```mermaid
-graph TD
-    CLI["AssertRunnerCli<br/><i>Picocli main</i>"]
-    CFG["ConfigLoader → RunnerConfig"]
-    USR["UnitSuiteRunner<br/>JavaCompilerUtil<br/>FlinkSqlTestCase"]
-    INT["IntegrationSuite<br/><i>JUnit 4 test class</i>"]
-    KAFKA["kafka.*<br/>FixtureLoader · OutputVerifier · TopicAdmin"]
-    FLINK["flink.*<br/>JobController · SqlAssertionExecutor"]
-    ASRT["assertion.* / template.*<br/>AssertionSpecParser · EnvVarTemplating"]
-    REPORT["report.TextResultReporter"]
+flowchart LR
+    SQL(["Flink SQL<br/>Script"])
+    TEST(["Unit Test<br/>File"])
+    RESULT(["Result<br/>File"])
 
-    CLI --> CFG
-    CFG -->|unit mode| USR
-    CFG -->|integration mode| INT
-    INT --> KAFKA
-    INT --> FLINK
-    INT --> ASRT
-    USR --> REPORT
-    INT --> REPORT
+    subgraph RUNNER ["Flink SQL Test Runner"]
+        direction TB
+        CLEAN["Cleanup Script"]
+        MOCK["Mock Sources<br/>and Sinks"]
+        COMPILE["Compile Java File"]
 
-    classDef entry fill:#fef3c7,stroke:#f59e0b,color:#1f2937;
-    classDef driver fill:#dbeafe,stroke:#3b82f6,color:#1f2937;
-    classDef leaf fill:#e0e7ff,stroke:#6366f1,color:#1f2937;
-    class CLI,CFG entry;
-    class USR,INT driver;
-    class KAFKA,FLINK,ASRT,REPORT leaf;
+        subgraph JUNIT ["JUnit"]
+            EXEC["Execute Unit Test"]
+            subgraph TENV ["Flink Table Environment"]
+                direction LR
+                RUNSQL["Execute Flink<br/>SQL Script"]
+                RUNTEST["Execute Test<br/>Statements"]
+                RUNSQL --> RUNTEST
+            end
+            EXEC --> TENV
+        end
+
+        CLEAN --> MOCK --> EXEC
+        COMPILE --> EXEC
+    end
+
+    SQL --> CLEAN
+    TEST --> COMPILE
+    TENV --> RESULT
+
+    classDef input fill:#fde2e2,stroke:#dc2626,color:#1f2937;
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#1f2937;
+    classDef action fill:#fed7aa,stroke:#c2410c,color:#1f2937;
+    classDef pivot fill:#bbf7d0,stroke:#15803d,color:#1f2937;
+    class SQL,TEST input;
+    class RESULT output;
+    class CLEAN,MOCK,COMPILE,RUNSQL,RUNTEST action;
+    class EXEC pivot;
 ```
 
-### Runtime topology
+### Integration testing flow
 
-What needs to be running for an integration test, and who talks to whom:
+You bring an assertion script, input records, and your real Flink SQL job.
+The runner publishes records to Kafka, your job runs on a real Flink cluster,
+and assertions are evaluated against the live result topic.
 
 ```mermaid
-architecture-beta
-    group env(cloud)[Test environment]
+flowchart LR
+    ASRT(["Assertion<br/>Script"])
+    INPUT(["Input<br/>Records"])
+    SQL(["Flink SQL<br/>Script"])
+    RESULT(["Result<br/>File"])
+    KAFKA(("Kafka"))
 
-    service runner(server)[Assert Runner] in env
-    service kafka(database)[Kafka broker] in env
-    service sr(disk)[Schema Registry] in env
-    service jm(server)[Flink JobManager] in env
-    service tm(server)[Flink TaskManager] in env
+    subgraph RUNNER ["Flink SQL Test Runner"]
+        direction TB
+        subgraph JUNIT ["JUnit"]
+            direction LR
+            EXEC["Execute<br/>Integration Test"]
+            subgraph TENV ["Flink Table Environment"]
+                direction LR
+                RUN_ASRT["Execute<br/>Assertions"]
+                MODE{"Is positive<br/>assertion?"}
+                YES["Assert result<br/>size is N"]
+                NO["Assert result<br/>size is 0"]
+                RUN_ASRT --> MODE
+                MODE -->|Yes| YES
+                MODE -->|No| NO
+            end
+            EXEC --> TENV
+        end
+        PUBLISH["Publish Records"]
+    end
 
-    runner:R -- L:kafka
-    runner:B -- T:sr
-    runner:T -- B:jm
-    jm:R -- L:tm
-    tm:B -- T:kafka
-    tm:L -- R:sr
+    subgraph CLUSTER ["Flink Cluster"]
+        direction LR
+        INJECT["Inject<br/>env variables"]
+        EXEC_SQL["Execute<br/>SQL statements"]
+        INJECT --> EXEC_SQL
+    end
+
+    ASRT --> EXEC
+    INPUT --> PUBLISH --> KAFKA
+    SQL --> INJECT
+    EXEC_SQL --> KAFKA
+    KAFKA --> RUN_ASRT
+    YES --> RESULT
+    NO --> RESULT
+
+    classDef input fill:#fde2e2,stroke:#dc2626,color:#1f2937;
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#1f2937;
+    classDef action fill:#fed7aa,stroke:#c2410c,color:#1f2937;
+    classDef pivot fill:#bbf7d0,stroke:#15803d,color:#1f2937;
+    classDef external fill:#e5e7eb,stroke:#4b5563,color:#1f2937;
+    classDef decision fill:#fef3c7,stroke:#b45309,color:#1f2937;
+    class ASRT,INPUT,SQL input;
+    class RESULT output;
+    class PUBLISH,INJECT,EXEC_SQL,RUN_ASRT,YES,NO action;
+    class EXEC pivot;
+    class KAFKA external;
+    class MODE decision;
 ```
 
 ---
