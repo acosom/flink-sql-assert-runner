@@ -93,26 +93,32 @@ required.
 
 ### Architecture
 
-```
-                ┌─────────────────────────────────────────────┐
-                │  AssertRunnerCli (Picocli main)             │
-                │           ConfigLoader → RunnerConfig       │
-                └─────────────┬───────────────────┬───────────┘
-                              │ unit              │ integration
-                              ▼                   ▼
-              ┌────────────────────┐   ┌────────────────────────┐
-              │ UnitSuiteRunner    │   │ IntegrationSuite       │
-              │ JavaCompilerUtil   │   │ (JUnit 4 test class)   │
-              │ FlinkSqlTestCase   │   └─────────┬──────────────┘
-              └────────────────────┘             │
-                                       ┌─────────┼─────────┐
-                                       ▼         ▼         ▼
-                                ┌──────────┐ ┌────────┐ ┌────────────┐
-                                │ kafka.*  │ │ flink. │ │ assertion. │
-                                │ Loader   │ │ Job    │ │ SpecParser │
-                                │ Verifier │ │ Cont.  │ │ Templating │
-                                │ TopicAd. │ │ SqlExec│ │            │
-                                └──────────┘ └────────┘ └────────────┘
+```mermaid
+graph TD
+    CLI["AssertRunnerCli<br/><i>Picocli main</i>"]
+    CFG["ConfigLoader → RunnerConfig"]
+    USR["UnitSuiteRunner<br/>JavaCompilerUtil<br/>FlinkSqlTestCase"]
+    INT["IntegrationSuite<br/><i>JUnit 4 test class</i>"]
+    KAFKA["kafka.*<br/>FixtureLoader · OutputVerifier · TopicAdmin"]
+    FLINK["flink.*<br/>JobController · SqlAssertionExecutor"]
+    ASRT["assertion.* / template.*<br/>AssertionSpecParser · EnvVarTemplating"]
+    REPORT["report.TextResultReporter"]
+
+    CLI --> CFG
+    CFG -->|unit mode| USR
+    CFG -->|integration mode| INT
+    INT --> KAFKA
+    INT --> FLINK
+    INT --> ASRT
+    USR --> REPORT
+    INT --> REPORT
+
+    classDef entry fill:#fef3c7,stroke:#f59e0b,color:#1f2937;
+    classDef driver fill:#dbeafe,stroke:#3b82f6,color:#1f2937;
+    classDef leaf fill:#e0e7ff,stroke:#6366f1,color:#1f2937;
+    class CLI,CFG entry;
+    class USR,INT driver;
+    class KAFKA,FLINK,ASRT,REPORT leaf;
 ```
 
 ---
