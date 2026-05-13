@@ -1,3 +1,5 @@
+![Flink SQL Assert Runner — test your Flink SQL, trust every result](banner.png)
+
 # flink-sql-assert-runner
 
 A test harness for [Apache Flink](https://flink.apache.org/) SQL pipelines. Define
