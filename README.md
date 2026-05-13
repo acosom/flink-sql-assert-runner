@@ -98,6 +98,7 @@ script's connector configs (so it runs in-process against a Paimon catalog),
 compiles your test class, and executes it inside a `StreamTableEnvironment`.
 
 ```mermaid
+%%{init: {'themeCSS': '.node, .node *, .cluster, .cluster * { filter: none !important; box-shadow: none !important; }'}}%%
 flowchart LR
     SQL(["Flink SQL<br/>Script"])
     TEST(["Unit Test<br/>File"])
@@ -124,18 +125,23 @@ flowchart LR
         COMPILE --> EXEC
     end
 
+    SQL ~~~ TEST
     SQL --> CLEAN
     TEST --> COMPILE
     TENV --> RESULT
 
-    classDef input fill:#fde2e2,stroke:#dc2626,color:#1f2937;
-    classDef output fill:#dcfce7,stroke:#16a34a,color:#1f2937;
-    classDef action fill:#fed7aa,stroke:#c2410c,color:#1f2937;
-    classDef pivot fill:#bbf7d0,stroke:#15803d,color:#1f2937;
+    classDef input fill:#2563eb,color:#ffffff,stroke-width:0px;
+    classDef output fill:#22c55e,color:#ffffff,stroke-width:0px;
+    classDef action fill:#f97316,color:#ffffff,stroke-width:0px;
+    classDef pivot fill:#f97316,color:#ffffff,stroke-width:0px;
     class SQL,TEST input;
     class RESULT output;
     class CLEAN,MOCK,COMPILE,RUNSQL,RUNTEST action;
     class EXEC pivot;
+
+    style RUNNER fill:#0f1e3d,color:#ffffff,stroke-width:0px;
+    style JUNIT fill:#1e293b,color:#ffffff,stroke-width:0px;
+    style TENV fill:#1e1b4b,color:#ffffff,stroke-width:0px;
 ```
 
 ### Integration testing flow
@@ -150,6 +156,7 @@ directly and checks that at least one expected message arrives within a
 timeout — no SQL assertion needed.
 
 ```mermaid
+%%{init: {'themeCSS': '.node, .node *, .cluster, .cluster * { filter: none !important; box-shadow: none !important; }'}}%%
 flowchart LR
     ASRT(["Assertion<br/>Script"])
     INPUT(["Input<br/>Records"])
@@ -164,45 +171,55 @@ flowchart LR
             EXEC["Execute<br/>Integration Test"]
             subgraph TENV ["Flink Table Environment"]
                 direction LR
-                INJECT["Inject @@env@@<br/>variables"]
                 RUN_ASRT["Execute<br/>Assertions"]
                 MODE{"Is positive<br/>assertion?"}
                 YES["Assert result<br/>size is N"]
                 NO["Assert result<br/>size is 0"]
-                INJECT --> RUN_ASRT --> MODE
+                RUN_ASRT --> MODE
                 MODE -->|Yes| YES
                 MODE -->|No| NO
             end
-            EXEC --> TENV
+            EXEC --> RUN_ASRT
         end
         PUBLISH["Publish Records"]
-        SUBMIT["Submit and start<br/>Flink job"]
     end
 
     subgraph CLUSTER ["Flink Cluster"]
-        JOB["Your Flink SQL job"]
+        direction TB
+        subgraph FLINK_RUNNER ["Flink SQL Runner"]
+            direction LR
+            INJECT["Inject env<br/>variables"]
+            EXEC_SQL["Execute<br/>SQL statements"]
+            INJECT --> EXEC_SQL
+        end
     end
 
     ASRT --> EXEC
     INPUT --> PUBLISH --> KAFKA
-    SQL --> SUBMIT --> JOB
-    JOB <--> KAFKA
+    SQL --> INJECT
+    EXEC_SQL --> KAFKA
     KAFKA --> RUN_ASRT
     YES --> RESULT
     NO --> RESULT
 
-    classDef input fill:#fde2e2,stroke:#dc2626,color:#1f2937;
-    classDef output fill:#dcfce7,stroke:#16a34a,color:#1f2937;
-    classDef action fill:#fed7aa,stroke:#c2410c,color:#1f2937;
-    classDef pivot fill:#bbf7d0,stroke:#15803d,color:#1f2937;
-    classDef external fill:#e5e7eb,stroke:#4b5563,color:#1f2937;
-    classDef decision fill:#fef3c7,stroke:#b45309,color:#1f2937;
+    classDef input fill:#2563eb,color:#ffffff,stroke-width:0px;
+    classDef output fill:#22c55e,color:#ffffff,stroke-width:0px;
+    classDef action fill:#f97316,color:#ffffff,stroke-width:0px;
+    classDef pivot fill:#f97316,color:#ffffff,stroke-width:0px;
+    classDef external fill:#475569,color:#ffffff,stroke-width:0px;
+    classDef decision fill:#f97316,color:#ffffff,stroke-width:0px;
     class ASRT,INPUT,SQL input;
     class RESULT output;
-    class PUBLISH,SUBMIT,INJECT,RUN_ASRT,YES,NO action;
+    class PUBLISH,INJECT,EXEC_SQL,RUN_ASRT,YES,NO action;
     class EXEC pivot;
-    class KAFKA,JOB external;
+    class KAFKA external;
     class MODE decision;
+
+    style RUNNER fill:#0f1e3d,color:#ffffff,stroke-width:0px;
+    style JUNIT fill:#1e293b,color:#ffffff,stroke-width:0px;
+    style TENV fill:#1e1b4b,color:#ffffff,stroke-width:0px;
+    style CLUSTER fill:#0f1e3d,color:#ffffff,stroke-width:0px;
+    style FLINK_RUNNER fill:#1e293b,color:#ffffff,stroke-width:0px;
 ```
 
 ---
