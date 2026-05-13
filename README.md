@@ -144,6 +144,11 @@ You bring an assertion script, input records, and your real Flink SQL job.
 The runner publishes records to Kafka, your job runs on a real Flink cluster,
 and assertions are evaluated against the live result topic.
 
+A second validation path (not shown for clarity): if a scenario also includes
+an `output/` folder, the runner consumes the corresponding output topics
+directly and checks that at least one expected message arrives within a
+timeout — no SQL assertion needed.
+
 ```mermaid
 flowchart LR
     ASRT(["Assertion<br/>Script"])
@@ -159,30 +164,29 @@ flowchart LR
             EXEC["Execute<br/>Integration Test"]
             subgraph TENV ["Flink Table Environment"]
                 direction LR
+                INJECT["Inject @@env@@<br/>variables"]
                 RUN_ASRT["Execute<br/>Assertions"]
                 MODE{"Is positive<br/>assertion?"}
                 YES["Assert result<br/>size is N"]
                 NO["Assert result<br/>size is 0"]
-                RUN_ASRT --> MODE
+                INJECT --> RUN_ASRT --> MODE
                 MODE -->|Yes| YES
                 MODE -->|No| NO
             end
             EXEC --> TENV
         end
         PUBLISH["Publish Records"]
+        SUBMIT["Submit and start<br/>Flink job"]
     end
 
     subgraph CLUSTER ["Flink Cluster"]
-        direction LR
-        INJECT["Inject<br/>env variables"]
-        EXEC_SQL["Execute<br/>SQL statements"]
-        INJECT --> EXEC_SQL
+        JOB["Your Flink SQL job"]
     end
 
     ASRT --> EXEC
     INPUT --> PUBLISH --> KAFKA
-    SQL --> INJECT
-    EXEC_SQL --> KAFKA
+    SQL --> SUBMIT --> JOB
+    JOB <--> KAFKA
     KAFKA --> RUN_ASRT
     YES --> RESULT
     NO --> RESULT
@@ -195,9 +199,9 @@ flowchart LR
     classDef decision fill:#fef3c7,stroke:#b45309,color:#1f2937;
     class ASRT,INPUT,SQL input;
     class RESULT output;
-    class PUBLISH,INJECT,EXEC_SQL,RUN_ASRT,YES,NO action;
+    class PUBLISH,SUBMIT,INJECT,RUN_ASRT,YES,NO action;
     class EXEC pivot;
-    class KAFKA external;
+    class KAFKA,JOB external;
     class MODE decision;
 ```
 
