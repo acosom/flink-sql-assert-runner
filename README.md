@@ -2,6 +2,13 @@
 
 # flink-sql-assert-runner
 
+[![CI](https://img.shields.io/github/actions/workflow/status/acosom/flink-sql-assert-runner/ci.yml?branch=main&style=flat-square&label=CI&logo=github)](https://github.com/acosom/flink-sql-assert-runner/actions/workflows/ci.yml?query=branch%3Amain)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Java](https://img.shields.io/badge/Java-17-007396?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
+[![Flink](https://img.shields.io/badge/Apache_Flink-2.0-E6526F?style=flat-square&logo=apacheflink&logoColor=white)](https://flink.apache.org/)
+[![Latest release](https://img.shields.io/github/v/tag/acosom/flink-sql-assert-runner?filter=*flink-2.0*&style=flat-square&label=release&color=blueviolet)](https://github.com/acosom/flink-sql-assert-runner/tags)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/acosom/flink-sql-assert-runner/pulls)
+
 A test harness for [Apache Flink](https://flink.apache.org/) SQL pipelines. Define
 test scenarios and assertions as plain SQL files; the runner publishes Avro
 fixtures to Kafka, deploys your Flink SQL job, runs assertion queries against
