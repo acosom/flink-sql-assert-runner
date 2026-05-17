@@ -319,40 +319,6 @@
                 </executions>
             </plugin>
 
-            <!-- Jib -->
-            <plugin>
-                <groupId>com.google.cloud.tools</groupId>
-                <artifactId>jib-maven-plugin</artifactId>
-                <version>${jib-maven-plugin.version}</version>
-                <configuration>
-                    <from>
-                        <image>eclipse-temurin:11-jre</image>
-                    </from>
-                    <container>
-                        <entrypoint>/app/entrypoint.sh</entrypoint>
-                    </container>
-                    <extraDirectories>
-                        <permissions>
-                            <permission>
-                                <file>/app/entrypoint.sh</file>
-                                <mode>755</mode>
-                            </permission>
-                        </permissions>
-                        <paths>
-                            <path>
-                                <from>target/</from>
-                                <includes>flink-sql-assert-runner.jar</includes>
-                                <into>/app/</into>
-                            </path>
-                            <path>
-                                <from>./</from>
-                                <includes>entrypoint.sh</includes>
-                                <into>/app/</into>
-                            </path>
-                        </paths>
-                    </extraDirectories>
-                </configuration>
-            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -365,5 +331,55 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            Opt-in profile for the container image build. Activate with:
+              mvn -Pdocker jib:dockerBuild
+            Users who only want the JAR (mvn package / install / verify) don't
+            need this and never see the jib plugin in their effective pom. CI
+            invokes it from ci/run.sh.
+        -->
+        <profile>
+            <id>docker</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.google.cloud.tools</groupId>
+                        <artifactId>jib-maven-plugin</artifactId>
+                        <version>${jib-maven-plugin.version}</version>
+                        <configuration>
+                            <from>
+                                <image>eclipse-temurin:17-jre</image>
+                            </from>
+                            <container>
+                                <entrypoint>/app/entrypoint.sh</entrypoint>
+                            </container>
+                            <extraDirectories>
+                                <permissions>
+                                    <permission>
+                                        <file>/app/entrypoint.sh</file>
+                                        <mode>755</mode>
+                                    </permission>
+                                </permissions>
+                                <paths>
+                                    <path>
+                                        <from>target/</from>
+                                        <includes>flink-sql-assert-runner.jar</includes>
+                                        <into>/app/</into>
+                                    </path>
+                                    <path>
+                                        <from>ci/</from>
+                                        <includes>entrypoint.sh</includes>
+                                        <into>/app/</into>
+                                    </path>
+                                </paths>
+                            </extraDirectories>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

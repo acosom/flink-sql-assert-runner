@@ -1,0 +1,121 @@
+services:
+  # Kafka broker + Schema Registry in one container. Replaces the
+  # Zookeeper/cp-server/Apicurio trio — single process, ~2-3s startup, same
+  # protocol surface (Kafka + Confluent-compatible SR).
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: redpanda
+    hostname: redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - "19092:19092"   # Kafka, host access
+      - "18081:18081"   # Schema Registry, host access
+      - "9644:9644"     # Admin API
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+
+  ## FLINK
+  ## Drop your SQL-runner job JAR into ../flink-jars/ (repo root) — it will be
+  ## uploaded to the JobManager and submitted via Flink's REST API by the
+  ## assert runner. ci/run.sh stages it there automatically.
+  jobmanager:
+    container_name: jobmanager
+    image: flink:1.20.4-scala_2.12-java17
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../src/main/resources/data/sql-script/:/opt/flink/sql
+      - ../flink-jars/:/opt/flink/usrlib
+    command: jobmanager
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    # Loads the same env file the assert runner uses so the cluster-side SQL
+    # runner can resolve @@VAR@@ placeholders in the pipeline SQL. Safe here
+    # because docker-compose runs session mode and we only submit one pipeline
+    # per CI invocation — there's nothing for env to leak into.
+    env_file:
+      - ./integration.env
+    environment:
+      # Override network-related vars: integration.env defaults point at
+      # localhost:* for host-side use; inside the compose network we need
+      # the service DNS names.
+      PROPERTIES_BOOTSTRAP_SERVERS: redpanda:9092
+      VALUE_AVRO_CONFLUENT_URL: http://redpanda:8081
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        rest.port: 8081
+        rest.bind-address: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        classloader.resolve-order: parent-first
+
+  taskmanager:
+    container_name: taskmanager
+    image: flink:1.20.4-scala_2.12-java17
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        rest.port: 8081
+        taskmanager.numberOfTaskSlots: 2
+        state.backend: rocksdb
+        state.backend.incremental: true
+
+  ## ASSERT RUNNER
+  ## Runs the test suite end-to-end against the rest of the stack.
+  ##   docker compose --profile integration up --abort-on-container-exit --exit-code-from assert-runner
+  ##   docker compose --profile unit        up --abort-on-container-exit --exit-code-from assert-runner
+  ## The image is built locally via `mvn jib:dockerBuild` (see ci/run.sh).
+  assert-runner:
+    image: flink-sql-assert-runner:${ASSERT_RUNNER_VERSION:-0.1.0-flink-1.20-SNAPSHOT}
+    container_name: assert-runner
+    profiles: [integration, unit]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      jobmanager:
+        condition: service_started
+      taskmanager:
+        condition: service_started
+    env_file:
+      - ./integration.env
+    environment:
+      # Network overrides — see jobmanager service above for the rationale.
+      INTEGRATION_KAFKA_SERVER: redpanda:9092
+      INTEGRATION_SCHEMA_REGISTRY_URL: http://redpanda:8081
+      INTEGRATION_FLINK_JOBMANAGER_SERVER: http://jobmanager:8081
+      # Substitution vars consumed by assertion SQL (rendered locally by the
+      # assert runner, then submitted to the cluster — needs cluster-network
+      # endpoints, hence the same values as the JobManager service).
+      PROPERTIES_BOOTSTRAP_SERVERS: redpanda:9092
+      VALUE_AVRO_CONFLUENT_URL: http://redpanda:8081
+      # Path overrides — integration.env defaults to ./src/... for host use;
+      # the volume mount below stages the same files at /app/integration.
+      INTEGRATION_TEST_DATA_DIR: /app/integration
+      RESULT_FILE: /app/result/result.txt
+      # Unit-mode paths (also mounted below). Ignored when RUN_UNIT_TESTS=false.
+      UNIT_TEST_SQL_DIR: /app/unit/script
+      UNIT_TEST_JAVA_DIR: /app/unit/test
+    volumes:
+      - ../src/main/resources/integration:/app/integration:ro
+      - ../examples/unit-tests/unit:/app/unit:ro
+      - ../result:/app/result
