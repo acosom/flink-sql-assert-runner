@@ -5,7 +5,7 @@ CREATE TABLE OUTPUT_SOURCE
     name STRING NOT NULL
 ) WITH (
       'connector' = 'kafka',
-      'topic' = 'output_topic',
+      'topic' = 'it_output_topic',
       'properties.bootstrap.servers' = '@@PROPERTIES_BOOTSTRAP_SERVERS@@',
       'properties.security.protocol' = '@@PROPERTIES_SECURITY_PROTOCOL@@',
       'properties.sasl.mechanism' = '@@PROPERTIES_SECURITY_MECHANISM@@',

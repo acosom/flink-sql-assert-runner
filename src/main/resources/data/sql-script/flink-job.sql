@@ -6,7 +6,7 @@ CREATE TABLE INPUT_SOURCE
     PRIMARY KEY (id) NOT ENFORCED
 ) WITH (
       'connector' = 'upsert-kafka',
-      'topic' = 'input_topic',
+      'topic' = 'it_input_topic',
       'properties.bootstrap.servers' = '@@PROPERTIES_BOOTSTRAP_SERVERS@@',
       'properties.group.id' = 'input-group-id',
       'properties.security.protocol' = '@@PROPERTIES_SECURITY_PROTOCOL@@',
@@ -25,7 +25,7 @@ CREATE TABLE OUTPUT_SINK
     PRIMARY KEY (id) NOT ENFORCED
 ) WITH (
       'connector' = 'upsert-kafka',
-      'topic' = 'output_topic',
+      'topic' = 'it_output_topic',
       'properties.bootstrap.servers' = '@@PROPERTIES_BOOTSTRAP_SERVERS@@',
       'properties.group.id' = 'output-group-id',
       'properties.security.protocol' = '@@PROPERTIES_SECURITY_PROTOCOL@@',
