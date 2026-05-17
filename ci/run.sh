@@ -62,10 +62,27 @@ teardown() {
 }
 trap teardown EXIT
 
-echo "==> docker compose --profile $PROFILE up"
+if [ "$PROFILE" = "integration" ]; then
+  echo "==> Booting cluster (redpanda + flink JM/TM) and waiting for healthchecks"
+  docker compose -f ci/docker-compose.yaml --profile integration up \
+    -d --wait redpanda jobmanager taskmanager
+
+  echo "==> Uploading flink-sql-runner JAR to JobManager"
+  # The runner uses the Flink REST /jars/upload endpoint to register the
+  # pipeline JAR before submitting jobs. Mounting it into /opt/flink/usrlib
+  # is not enough — that only adds it to the JM's classloader, not the
+  # uploaded-jars list. So we POST it explicitly here.
+  curl -fsS -X POST -H "Expect:" \
+    -F "jarfile=@flink-jars/flink-sql-runner.jar" \
+    http://localhost:8081/jars/upload
+  echo
+fi
+
+echo "==> docker compose --profile $PROFILE up assert-runner"
 docker compose -f ci/docker-compose.yaml --profile "$PROFILE" up \
   --abort-on-container-exit \
-  --exit-code-from assert-runner
+  --exit-code-from assert-runner \
+  assert-runner
 
 echo "==> Result file:"
 cat result/result.txt

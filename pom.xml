@@ -204,6 +204,24 @@
             <version>${flink.paimon.version}</version>
         </dependency>
 
+        <!--
+            Paimon's CatalogContext imports org.apache.hadoop.conf.Configuration
+            directly. It expects users to bring their own Hadoop on the
+            classpath (Paimon itself declares hadoop-common as provided).
+            hadoop-client-api + hadoop-client-runtime are the slim, pre-shaded
+            artifacts Paimon docs recommend.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-api</artifactId>
+            <version>3.3.6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-runtime</artifactId>
+            <version>3.3.6</version>
+        </dependency>
+
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-reload4j</artifactId>
