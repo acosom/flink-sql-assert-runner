@@ -478,22 +478,10 @@ replaced with the corresponding environment variable value before the
 assertion is submitted to the cluster. Single quotes in the value are
 escaped to `''` so they're safe inside SQL string literals.
 
-> **Two env scopes, by design.** `@@VAR@@` resolution happens in two
-> separate processes, and that separation is the safety boundary — not
-> an inconvenience to work around:
->
-> | Where `@@VAR@@` resolves | What it should describe |
-> |---|---|
-> | **FlinkDeployment / cluster env** (pipeline SQL is rendered here, on the JobManager, when your SQL runner reads the file) | The pipeline's **real** wiring — real broker, real topic names, real schema registry. The values the job uses in production. |
-> | **Assert runner env** (assertion SQL is rendered here, in the runner's own JVM, before submission to the cluster) | The pipeline's **test** wiring — same cluster maybe, but **test topics** (`it_*`, `staging_*`, scenario-prefixed) that this runner is allowed to `delete + recreate` without touching production data. |
->
-> The two envs are **deliberately different**. If they were the same,
-> the assert runner would happily purge whatever your production
-> pipeline writes to. Keep production env on the FlinkDeployment, keep
-> test env on the assert runner pod, and let the two `@@VAR@@`
-> substitutions resolve from each scope independently. Duplication
-> between the two scopes (matching `KAFKA_BOOTSTRAP`, different
-> `SINK_TOPIC`) is the correct shape.
+> Values come from the **assert runner's own environment** — point them
+> at test topics (`it_*`, `staging_*`, scenario-prefixed) that the
+> runner is allowed to `delete + recreate`. Never re-use production
+> topic names: the purge step would happily wipe them.
 
 **Inline assertion spec.** Anywhere in the file (typically as a SQL
 comment), include `key:value` tokens to control validation:
@@ -529,15 +517,6 @@ CREATE TABLE OUTPUT_SOURCE (
 -- mode:negative
 SELECT * FROM OUTPUT_SOURCE WHERE id NOT IN ('1', '2', '3');
 ```
-
-Note that the assertion uses `@@PROPERTIES_BOOTSTRAP_SERVERS@@`, not a
-separate `INTEGRATION_*` variable — once the assertion's table DDL is
-submitted to the cluster, the Kafka connector inside the cluster needs
-a broker address that's reachable *from the cluster network*. That's
-the same address the pipeline SQL uses for the same broker.
-`INTEGRATION_KAFKA_SERVER` is a different variable: it's only used by
-the assert runner's own out-of-cluster Kafka clients (fixture publish,
-output verify, topic admin).
 
 #### Positive example
 
