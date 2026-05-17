@@ -95,7 +95,7 @@ class FlinkJobControllerIT {
     @Test
     void startsJobAndReachesRunningState() {
         try (JobController controller = new JobController(jobmanagerUrl,
-                MinimalSqlRunner.class.getName(), "ignored.sql")) {
+                MinimalSqlRunner.class.getName(), java.util.List.of("ignored.sql"))) {
             assertDoesNotThrow(controller::startJob);
             controller.cancelAllRunningJobs();
         }
@@ -104,7 +104,7 @@ class FlinkJobControllerIT {
     @Test
     void cancelAllRunningJobsIsNoOpWhenNoneRunning() {
         try (JobController controller = new JobController(jobmanagerUrl,
-                MinimalSqlRunner.class.getName(), "ignored.sql")) {
+                MinimalSqlRunner.class.getName(), java.util.List.of("ignored.sql"))) {
             assertDoesNotThrow(controller::cancelAllRunningJobs);
         }
     }
@@ -112,7 +112,7 @@ class FlinkJobControllerIT {
     @Test
     void closeIsIdempotent() {
         JobController controller = new JobController(jobmanagerUrl,
-                MinimalSqlRunner.class.getName(), "ignored.sql");
+                MinimalSqlRunner.class.getName(), java.util.List.of("ignored.sql"));
         controller.close();
         assertDoesNotThrow(controller::close);
     }

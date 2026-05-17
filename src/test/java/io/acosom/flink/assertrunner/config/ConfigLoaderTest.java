@@ -32,6 +32,8 @@ class ConfigLoaderTest {
         assertThat(integration.getSchemaRegistryUrl()).isEqualTo("http://localhost:8081");
         assertThat(integration.getFlinkJobmanagerUrl()).isEqualTo("http://localhost:8081");
         assertThat(integration.getFlinkJobEntrypointClass()).isEqualTo("com.example.SqlRunner");
+        assertThat(integration.getFlinkJobProgramArgs())
+                .containsExactly("--sqlfile", "/opt/flink/sql/job.sql");
         assertThat(integration.getOutputTopics()).containsExactly("a", "b");
         assertThat(integration.getSuccessTimeoutMs()).isEqualTo(5000L);
     }
@@ -105,7 +107,7 @@ class ConfigLoaderTest {
         env.put("INTEGRATION_KAFKA_SERVER", "localhost:9092");
         env.put("INTEGRATION_SCHEMA_REGISTRY_URL", "http://localhost:8081");
         env.put("INTEGRATION_FLINK_JOBMANAGER_SERVER", "http://localhost:8081");
-        env.put("INTEGRATION_TEST_JOB_SQL_FILE", "job.sql");
+        env.put("INTEGRATION_FLINK_JOB_PROGRAM_ARGS", "--sqlfile /opt/flink/sql/job.sql");
         env.put("INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS", "com.example.SqlRunner");
         env.put("INTEGRATION_OUTPUT_TOPICS", "a,b");
         env.put("INTEGRATION_TEST_SUCCESS_TIMEOUT_MS", "5000");

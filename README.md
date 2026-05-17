@@ -632,7 +632,7 @@ All settings come from environment variables. The CLI also accepts
 | `INTEGRATION_KAFKA_SERVER`               | yes      | Bootstrap servers, e.g. `localhost:9092`.                      |
 | `INTEGRATION_SCHEMA_REGISTRY_URL`        | yes      | Confluent-compatible Schema Registry URL.                      |
 | `INTEGRATION_FLINK_JOBMANAGER_SERVER`    | yes      | Flink JobManager REST URL, e.g. `http://localhost:8081`.       |
-| `INTEGRATION_TEST_JOB_SQL_FILE`          | yes      | SQL file passed as the program argument to your job JAR (resolved as `/opt/flink/sql/<value>`). |
+| `INTEGRATION_FLINK_JOB_PROGRAM_ARGS`     | yes      | Whitespace-separated program args passed **verbatim** to your Flink job JAR's `main()`. Adapt to your runner's CLI — e.g. `--sqlfile /opt/flink/sql/x.sql` for `acosom/flink-sql-runner`, `/opt/flink/sql/x.sql` for a positional-arg JAR, or any flag scheme your runner uses. The assert runner makes no assumption about the convention. |
 | `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS` | yes      | Main class of the Flink job JAR you uploaded.                  |
 | `INTEGRATION_OUTPUT_TOPICS`              | no       | Comma-separated list of sink topics to purge before each run. **See callout below — these topics are deleted + recreated.** |
 | `INTEGRATION_TEST_SUCCESS_TIMEOUT_MS`    | no       | Global timeout for a SQL assertion's `SELECT`. Default `10000`.|

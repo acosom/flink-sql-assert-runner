@@ -43,9 +43,9 @@ public final class JobController implements AutoCloseable {
     private final RestClient restClient;
     private final URI jobmanagerUri;
     private final String entrypointClass;
-    private final String sqlFileInJar;
+    private final List<String> programArgs;
 
-    public JobController(String jobmanagerUrl, String entrypointClass, String sqlFileInJar) {
+    public JobController(String jobmanagerUrl, String entrypointClass, List<String> programArgs) {
         try {
             this.restClient = new RestClient(new Configuration(), Executors.newSingleThreadExecutor());
         } catch (ConfigurationException e) {
@@ -53,7 +53,7 @@ public final class JobController implements AutoCloseable {
         }
         this.jobmanagerUri = URI.create(jobmanagerUrl);
         this.entrypointClass = entrypointClass;
-        this.sqlFileInJar = sqlFileInJar;
+        this.programArgs = programArgs;
     }
 
     public void startJob() {
@@ -122,9 +122,16 @@ public final class JobController implements AutoCloseable {
     }
 
     private JobID runJobFromJar(String jarId) {
+        // programArgs are passed verbatim — the assert runner makes no
+        // assumption about the Flink job JAR's CLI convention. The user
+        // configures the exact arg vector via INTEGRATION_FLINK_JOB_PROGRAM_ARGS.
+        // Flink 1.20's JarRunRequestBody takes program args as a single
+        // whitespace-separated String; Flink rejoins+splits them on the
+        // cluster side. Flink 2.0 changed this to List<String>. Our
+        // public API uses List<String> on both branches for consistency.
         JarRunRequestBody body = new JarRunRequestBody(
                 entrypointClass,
-                "/opt/flink/sql/" + sqlFileInJar,
+                String.join(" ", programArgs),
                 null, null, null, null, null, null, null);
 
         JarRunMessageParameters params = JarRunHeaders.getInstance().getUnresolvedMessageParameters();
