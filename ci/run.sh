@@ -35,8 +35,8 @@ cd "$REPO_ROOT"
 mkdir -p result flink-jars
 
 if [ "$SKIP_BUILD" = "0" ]; then
-  echo "==> Building assert-runner image (mvn -Pdocker jib:dockerBuild)"
-  mvn -B -q -DskipTests -Pdocker jib:dockerBuild
+  echo "==> Building assert-runner image (mvn -Pdocker package jib:dockerBuild)"
+  mvn -B -q -DskipTests -Pdocker package jib:dockerBuild
 
   if [ "$PROFILE" = "integration" ]; then
     echo "==> Building flink-sql-runner JAR from ${SQL_RUNNER_REPO}"
