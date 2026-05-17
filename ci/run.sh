@@ -57,6 +57,15 @@ if [ "$SKIP_BUILD" = "0" ]; then
 fi
 
 teardown() {
+  # Dump cluster logs on integration so failures aren't opaque. The Channel-
+  # became-inactive errors from JobController only tell us *that* the cluster
+  # closed the connection, not why — the actual stack trace is on the JM/TM.
+  if [ "$PROFILE" = "integration" ]; then
+    echo "==> JobManager logs (last 200 lines)"
+    docker compose -f ci/docker-compose.yaml --profile integration logs --tail=200 jobmanager 2>&1 || true
+    echo "==> TaskManager logs (last 200 lines)"
+    docker compose -f ci/docker-compose.yaml --profile integration logs --tail=200 taskmanager 2>&1 || true
+  fi
   docker compose -f ci/docker-compose.yaml --profile "$PROFILE" \
     down --volumes --remove-orphans >/dev/null 2>&1 || true
 }
