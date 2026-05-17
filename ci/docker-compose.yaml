@@ -6,6 +6,7 @@ services:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
     container_name: redpanda
     hostname: redpanda
+    profiles: [integration]
     command:
       - redpanda
       - start
@@ -37,6 +38,7 @@ services:
   jobmanager:
     container_name: jobmanager
     image: flink:2.0.1-scala_2.12-java17
+    profiles: [integration]
     ports:
       - "8081:8081"
     volumes:
@@ -69,6 +71,7 @@ services:
   taskmanager:
     container_name: taskmanager
     image: flink:2.0.1-scala_2.12-java17
+    profiles: [integration]
     depends_on:
       - jobmanager
     command: taskmanager
@@ -84,7 +87,9 @@ services:
   ## Runs the test suite end-to-end against the rest of the stack.
   ##   docker compose --profile integration up --abort-on-container-exit --exit-code-from assert-runner
   ##   docker compose --profile unit        up --abort-on-container-exit --exit-code-from assert-runner
-  ## The image is built locally via `mvn jib:dockerBuild` (see ci/run.sh).
+  ## ci/run.sh sets ENV_FILE=integration or ENV_FILE=unit so we load the right
+  ## env file per profile. Image is built locally via `mvn -Pdocker package
+  ## jib:dockerBuild` (see ci/run.sh).
   assert-runner:
     image: flink-sql-assert-runner:${ASSERT_RUNNER_VERSION:-0.1.0-flink-2.0-SNAPSHOT}
     container_name: assert-runner
@@ -92,12 +97,15 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
+        required: false
       jobmanager:
         condition: service_started
+        required: false
       taskmanager:
         condition: service_started
+        required: false
     env_file:
-      - ./integration.env
+      - ./${ENV_FILE:-integration}.env
     environment:
       # Network overrides — see jobmanager service above for the rationale.
       INTEGRATION_KAFKA_SERVER: redpanda:9092

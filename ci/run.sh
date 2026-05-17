@@ -34,6 +34,11 @@ esac
 cd "$REPO_ROOT"
 mkdir -p result flink-jars
 
+# Tells the compose service which env file to load (ci/integration.env vs
+# ci/unit.env). The two env files differ on RUN_UNIT_TESTS and which set of
+# variables they declare required.
+export ENV_FILE="$PROFILE"
+
 if [ "$SKIP_BUILD" = "0" ]; then
   echo "==> Building assert-runner image (mvn -Pdocker package jib:dockerBuild)"
   mvn -B -q -DskipTests -Pdocker package jib:dockerBuild
