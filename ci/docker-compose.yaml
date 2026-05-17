@@ -45,6 +45,15 @@ services:
       - ../src/main/resources/data/sql-script/:/opt/flink/sql
       - ../flink-jars/:/opt/flink/usrlib
     command: jobmanager
+    # Container "running" != Flink REST is up. Probe the /config endpoint
+    # before downstream services try to talk to it. Uses bash's /dev/tcp
+    # since the temurin base image has no curl/wget.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
     depends_on:
       redpanda:
         condition: service_healthy
@@ -99,7 +108,7 @@ services:
         condition: service_healthy
         required: false
       jobmanager:
-        condition: service_started
+        condition: service_healthy
         required: false
       taskmanager:
         condition: service_started
