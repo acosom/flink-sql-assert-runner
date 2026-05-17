@@ -78,8 +78,8 @@ layer** at table-creation time:
 - The runner parses each `CREATE TABLE … WITH ('connector' = 'kafka', …)`
   statement and **strips the `WITH (…)` clause** before handing it to Flink.
 - An [Apache Paimon](https://paimon.apache.org/) catalog rooted at a temp
-  directory is registered as the active catalog, so tables created without
-  a connector spec are backed by Paimon's in-process file storage.
+  directory is registered as the **active catalog**, so tables created
+  without a connector spec land in Paimon's in-process file storage.
 - `CREATE VIEW` is rewritten to `CREATE TEMPORARY VIEW` so it lives only
   for the test.
 - `ADD JAR` statements are dropped (UDF JARs are loaded a different way in
@@ -89,6 +89,42 @@ The SQL parser, planner, optimizer, and operator runtime are all the
 **real Flink runtime** — only the source/sink connectors are replaced.
 Sources become tables you `INSERT INTO` directly from the test; sinks
 become tables you `SELECT FROM` to make assertions.
+
+### Why Paimon?
+
+Two pieces have to line up for the swap to work: somewhere to store table
+data without external services, and a backend the Flink planner treats
+exactly like a real connector. [Apache Paimon](https://paimon.apache.org/)
+(formerly Flink Table Store) is both.
+
+A Flink **catalog** is the metastore the SQL planner consults to resolve
+`db.table` references — schemas, properties, and where the data lives.
+The default in-memory catalog only holds metadata for the session; Paimon
+ships its own catalog implementation that also persists the data itself,
+as Parquet/ORC files indexed by an LSM-style manifest, in any directory
+you point it at. For unit tests that directory is a per-test temp dir, so
+state is fresh on every run and cleaned up automatically.
+
+Why Paimon specifically, and not a generic filesystem connector or an
+in-memory table:
+
+- **Changelog-native.** Flink SQL pipelines that do `GROUP BY`, joins,
+  deduplication, or temporal aggregations emit *retract streams* — rows
+  tagged `+I` / `+U` / `-U` / `-D`. Paimon supports primary keys and
+  UPDATE/DELETE semantics out of the box. An append-only filesystem
+  connector would crash the moment the pipeline retracted a row.
+- **Streaming and batch reads on the same table.** Your sink can be
+  written as a streaming insert and immediately read as a finite snapshot
+  in the same test — no pipeline rewrite, no separate fixture format.
+- **No external services.** The catalog is a directory; no Hive metastore,
+  no JDBC server, no daemon, no port to allocate. Tests run anywhere a
+  JVM does.
+- **Same Flink SPI as production sinks.** Paimon plugs into Flink via the
+  same `DynamicTableSource` / `DynamicTableSink` / `Catalog` interfaces a
+  Kafka or JDBC connector does, so the planner generates an equivalent
+  query plan against either. What you test is what runs in prod.
+
+### Runtime test compilation
 
 Test classes themselves are **plain `.java` source files** that the runner
 compiles in-process via the JDK's
