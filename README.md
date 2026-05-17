@@ -412,15 +412,25 @@ flowchart LR
 ├── 📂 scenario-1
 │   ├── 📂 input
 │   │   ├── 📂 schema
-│   │   │   └── 📄 input_topic.json   # Avro schema (.avsc-style JSON)
-│   │   └── 📄 input_topic.json       # array of records to publish
-│   ├── 📂 output                      # optional: expected sink topic data
-│   │   └── 📄 output_topic.json
-│   └── 📂 sqlAssertions               # optional: SQL-based assertions
+│   │   │   └── 📄 it_input_topic.json   # Avro schema (.avsc-style JSON)
+│   │   └── 📄 it_input_topic.json       # array of records to publish
+│   ├── 📂 output                         # optional: expected sink topic data
+│   │   └── 📄 it_output_topic.json
+│   └── 📂 sqlAssertions                  # optional: SQL-based assertions
 │       └── 📄 some_check.sql
 └── 📂 scenario-2
     └── …
 ```
+
+> **⚠️ Destructive — filenames map to topics that get deleted.**
+> Each `input/<name>.json` filename and each entry in
+> `INTEGRATION_OUTPUT_TOPICS` is treated as a Kafka topic name, and the
+> runner does a **delete + recreate** on those topics at the start of
+> every scenario. Pick a naming convention that can never collide with a
+> production topic — a `it_` prefix, an env suffix (`_dev`/`_staging`),
+> or scenario-specific names. Bullets below use `it_input_topic` /
+> `it_output_topic` for this reason; do not just write `users` or
+> `orders` and point this at a shared cluster.
 
 ### Output snapshot format
 
@@ -468,22 +478,22 @@ replaced with the corresponding environment variable value before the
 assertion is submitted to the cluster. Single quotes in the value are
 escaped to `''` so they're safe inside SQL string literals.
 
-> **Note:** there are *two* substitution layers in the integration path,
-> both using the same `@@VAR@@` convention but applied at different
-> times:
+> **Two env scopes, by design.** `@@VAR@@` resolution happens in two
+> separate processes, and that separation is the safety boundary — not
+> an inconvenience to work around:
 >
-> - **Pipeline SQL** (your actual Flink job, e.g. `my-pipeline.sql`) —
->   substitution is done on the cluster by your SQL runner (e.g.
->   [`flink-sql-runner`](https://github.com/acosom/flink-sql-runner)),
->   reading env vars from the Flink pod's environment.
-> - **Assertion SQL** (`sqlAssertions/*.sql`) — substitution is done
->   locally by the assert runner itself, reading env vars from its own
->   process, *before* the assertion is sent to the cluster.
+> | Where `@@VAR@@` resolves | What it should describe |
+> |---|---|
+> | **FlinkDeployment / cluster env** (pipeline SQL is rendered here, on the JobManager, when your SQL runner reads the file) | The pipeline's **real** wiring — real broker, real topic names, real schema registry. The values the job uses in production. |
+> | **Assert runner env** (assertion SQL is rendered here, in the runner's own JVM, before submission to the cluster) | The pipeline's **test** wiring — same cluster maybe, but **test topics** (`it_*`, `staging_*`, scenario-prefixed) that this runner is allowed to `delete + recreate` without touching production data. |
 >
-> The convention is intentionally identical so the same `@@INTEGRATION_KAFKA_SERVER@@`
-> resolves to the same value whether it appears in your pipeline SQL or
-> in an assertion — but the actual replacement happens in two different
-> processes.
+> The two envs are **deliberately different**. If they were the same,
+> the assert runner would happily purge whatever your production
+> pipeline writes to. Keep production env on the FlinkDeployment, keep
+> test env on the assert runner pod, and let the two `@@VAR@@`
+> substitutions resolve from each scope independently. Duplication
+> between the two scopes (matching `KAFKA_BOOTSTRAP`, different
+> `SINK_TOPIC`) is the correct shape.
 
 **Inline assertion spec.** Anywhere in the file (typically as a SQL
 comment), include `key:value` tokens to control validation:
@@ -508,17 +518,26 @@ CREATE TABLE OUTPUT_SOURCE (
     name STRING NOT NULL
 ) WITH (
     'connector'    = 'kafka',
-    'topic'        = 'output_topic',
-    'properties.bootstrap.servers' = '@@INTEGRATION_KAFKA_SERVER@@',
+    'topic'        = 'it_output_topic',
+    'properties.bootstrap.servers' = '@@PROPERTIES_BOOTSTRAP_SERVERS@@',
     'properties.group.id' = 'check-1',
     'scan.startup.mode'   = 'earliest-offset',
     'value.format'        = 'avro-confluent',
-    'value.avro-confluent.url' = '@@INTEGRATION_SCHEMA_REGISTRY_URL@@'
+    'value.avro-confluent.url' = '@@VALUE_AVRO_CONFLUENT_URL@@'
 );
 
 -- mode:negative
 SELECT * FROM OUTPUT_SOURCE WHERE id NOT IN ('1', '2', '3');
 ```
+
+Note that the assertion uses `@@PROPERTIES_BOOTSTRAP_SERVERS@@`, not a
+separate `INTEGRATION_*` variable — once the assertion's table DDL is
+submitted to the cluster, the Kafka connector inside the cluster needs
+a broker address that's reachable *from the cluster network*. That's
+the same address the pipeline SQL uses for the same broker.
+`INTEGRATION_KAFKA_SERVER` is a different variable: it's only used by
+the assert runner's own out-of-cluster Kafka clients (fixture publish,
+output verify, topic admin).
 
 #### Positive example
 
@@ -594,8 +613,18 @@ All settings come from environment variables. The CLI also accepts
 | `INTEGRATION_FLINK_JOBMANAGER_SERVER`    | yes      | Flink JobManager REST URL, e.g. `http://localhost:8081`.       |
 | `INTEGRATION_TEST_JOB_SQL_FILE`          | yes      | SQL file passed as the program argument to your job JAR (resolved as `/opt/flink/sql/<value>`). |
 | `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS` | yes      | Main class of the Flink job JAR you uploaded.                  |
-| `INTEGRATION_OUTPUT_TOPICS`              | no       | Comma-separated list of sink topics to purge before each run.  |
+| `INTEGRATION_OUTPUT_TOPICS`              | no       | Comma-separated list of sink topics to purge before each run. **See callout below — these topics are deleted + recreated.** |
 | `INTEGRATION_TEST_SUCCESS_TIMEOUT_MS`    | no       | Global timeout for a SQL assertion's `SELECT`. Default `10000`.|
+
+> **⚠️ Destructive — topic purge runs every scenario.**
+> Every topic name in `INTEGRATION_OUTPUT_TOPICS`, plus every filename
+> under each scenario's `input/` folder (filename = topic name), is
+> deleted and recreated when the scenario starts. Any data on those
+> topics is lost. If `INTEGRATION_KAFKA_SERVER` points at a shared or
+> production Kafka cluster, the only thing standing between you and
+> wiping a real topic is the test-side topic naming convention. Use a
+> prefix (`it_`, `test_`) or per-environment suffix that your real
+> pipelines will never write to.
 
 ### Unit
 
