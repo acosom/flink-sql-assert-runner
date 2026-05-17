@@ -27,80 +27,6 @@ License: Apache 2.0.
 
 ---
 
-## Concepts
-
-Flink SQL is hard to test the usual ways: the SQL references Kafka topics,
-Schema Registry, JDBC catalogs — everything outside the JVM. Most teams either
-skip tests entirely or maintain a parallel Java pipeline just to test the
-logic. This runner removes that tradeoff by leaning on three ideas:
-
-### 1. Unit tests run the real SQL against a swapped-out backend
-
-The Flink SQL you ship to production is the same SQL the unit test runs —
-**no rewrite, no fork, no shadow pipeline**. The trick is at table-creation
-time:
-
-- The runner parses each `CREATE TABLE … WITH ('connector' = 'kafka', …)`
-  statement and **strips the `WITH (…)` clause** before handing it to Flink.
-- An [Apache Paimon](https://paimon.apache.org/) catalog rooted at a temp
-  directory is registered as the active catalog, so tables created without
-  a connector spec are backed by Paimon's in-process storage.
-- `CREATE VIEW` is rewritten to `CREATE TEMPORARY VIEW` so it lives only for
-  the test.
-- `ADD JAR` statements are dropped (UDF JARs are loaded a different way in
-  unit mode).
-
-Net effect: the SQL parser/planner/executor are the **real Flink runtime**,
-running the **real query plan** — only the I/O layer is swapped. Sources
-become tables you `INSERT INTO` directly from the test; sinks become tables
-you `SELECT FROM`. No mocking, no fake operators, no behavior drift between
-test and production.
-
-### 2. Tests are `.java` source files compiled at runtime
-
-Test classes live as plain `.java` files in a directory the runner scans at
-startup. They're compiled in-process via the JDK's
-[javac API](https://docs.oracle.com/en/java/javase/17/docs/api/java.compiler/javax/tools/JavaCompiler.html)
-and loaded into a fresh classloader before JUnit runs.
-
-This means a test author **doesn't rebuild or redeploy the runner** to add a
-test — drop a new `MyJobTest.java` next to the SQL script, mount the folder
-into the runner container, and the next run picks it up. Same idea as
-hot-reloading a script, but for compiled JVM tests.
-
-### 3. Integration assertions are themselves Flink SQL
-
-In integration mode, the runner deploys your real Flink job against real
-Kafka, then evaluates assertions written as additional Flink SQL files
-(`sqlAssertions/*.sql`). Each assertion script:
-
-- Defines a `CREATE TABLE` over the sink topic (with full Kafka + Schema
-  Registry config — these resolve via `@@VAR@@` env substitution).
-- Ends with a `SELECT` whose row count determines pass/fail, in one of two
-  modes:
-
-  | Mode       | Passes when                              | Use case                                    |
-  |------------|------------------------------------------|---------------------------------------------|
-  | `positive` | `SELECT` returns exactly `outputCount` rows | "the job should emit these N expected records" |
-  | `negative` | `SELECT` returns zero rows               | "this bad-state row must never appear"      |
-
-Because assertions are real Flink jobs reading from real Kafka, they cover
-serialization, watermarks, state, retract streams — every behavior an end-to-end
-deploy would. Writing them in SQL keeps the test surface in the same language
-as the pipeline itself.
-
-### Putting it together
-
-| Mode        | Source of truth                    | Backend                  | Test files            | Runs against        |
-|-------------|------------------------------------|--------------------------|-----------------------|---------------------|
-| Unit        | The same `*.sql` pipeline script   | Paimon (in-process)      | `*.java` (JUnit 4)    | Local JVM           |
-| Integration | The same `*.sql` pipeline script   | Real Kafka + Flink + SR  | `*.sql` (assertions)  | A real Flink cluster|
-
-The pipeline SQL is reused unchanged between the two — unit mode validates
-logic without infrastructure, integration mode validates the whole stack.
-
----
-
 ## Flink version compatibility
 
 The runner ships Flink client libraries that talk to your cluster (REST API,
@@ -126,58 +52,53 @@ Pick the branch and tag matching your cluster's Flink:
 
 ## Table of contents
 
-- [Concepts](#concepts)
-- [How it works](#how-it-works)
+- [Unit testing](#unit-testing)
+- [Integration testing](#integration-testing)
 - [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [Configuration reference](#configuration-reference)
-- [Integration tests](#integration-tests)
-- [Unit tests](#unit-tests)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
 - [Contributing](#contributing)
 
 ---
 
-## How it works
+## Unit testing
 
-The runner ships as a fat JAR (`flink-sql-assert-runner.jar`) with a
-[Picocli](https://picocli.info/) CLI. Configuration is read from environment
-variables (and optionally overridden by CLI flags), then dispatched to either
-the integration or the unit test path.
+Unit tests exercise your Flink SQL script **in-process, against the real
+Flink runtime, without any external Kafka, Schema Registry, or other
+infrastructure**. The same SQL you ship to production is the SQL the unit
+test runs — there is no shadow pipeline, no parallel Java implementation,
+no hand-written mocks.
 
-### Integration mode
+### How it works
 
-For each scenario folder under `INTEGRATION_TEST_DATA_DIR`:
+The runner reuses your production Flink SQL by **swapping out the I/O
+layer** at table-creation time:
 
-1. **Cancel any running Flink jobs** so each scenario starts clean.
-2. **Purge** all configured `INTEGRATION_OUTPUT_TOPICS` and per-scenario input
-   topics (delete + recreate) so consumer offsets and stale data don't leak.
-3. **Publish** the JSON fixtures from `input/<topic>.json` to Kafka, encoded
-   as Avro using the schema in `input/schema/<topic>.json`.
-4. **Submit** the Flink SQL job. The runner expects a job JAR uploaded to the
-   JobManager (typically a SQL-runner that consumes `INTEGRATION_TEST_JOB_SQL_FILE`)
-   and an entrypoint class given by `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS`.
-5. **Validate**:
-   - If `output/<topic>.json` files exist, the runner consumes from each topic
-     and checks at least one expected message arrives within a timeout.
-   - If `sqlAssertions/*.sql` files exist, each one is run as a Flink job. The
-     last `SELECT` in the file produces rows that are validated against the
-     inline assertion spec.
+- The runner parses each `CREATE TABLE … WITH ('connector' = 'kafka', …)`
+  statement and **strips the `WITH (…)` clause** before handing it to Flink.
+- An [Apache Paimon](https://paimon.apache.org/) catalog rooted at a temp
+  directory is registered as the active catalog, so tables created without
+  a connector spec are backed by Paimon's in-process file storage.
+- `CREATE VIEW` is rewritten to `CREATE TEMPORARY VIEW` so it lives only
+  for the test.
+- `ADD JAR` statements are dropped (UDF JARs are loaded a different way in
+  unit mode).
 
-### Unit mode
+The SQL parser, planner, optimizer, and operator runtime are all the
+**real Flink runtime** — only the source/sink connectors are replaced.
+Sources become tables you `INSERT INTO` directly from the test; sinks
+become tables you `SELECT FROM` to make assertions.
 
-Java test classes under `UNIT_TEST_JAVA_DIR` are compiled at runtime and
-executed via JUnit 4. Each test class extends `FlinkSqlTestCase` and points at
-a SQL script in `UNIT_TEST_SQL_DIR`. The script's connector configuration
-(`WITH (...)` clauses on `CREATE TABLE`) is stripped so backing storage is
-provided by an in-process Paimon catalog — no Kafka or external services
-required.
+Test classes themselves are **plain `.java` source files** that the runner
+compiles in-process via the JDK's
+[javac API](https://docs.oracle.com/en/java/javase/17/docs/api/java.compiler/javax/tools/JavaCompiler.html)
+at startup, then loads into a fresh classloader and runs via JUnit 4. You
+don't rebuild or redeploy the runner to add a test — drop a new
+`MyJobTest.java` next to the SQL script, mount the folder into the runner
+container, and the next run picks it up.
 
-### Unit testing flow
-
-You bring a Flink SQL script and a JUnit test class. The runner strips the
-script's connector configs (so it runs in-process against a Paimon catalog),
-compiles your test class, and executes it inside a `StreamTableEnvironment`.
+### Flow
 
 ```mermaid
 %%{init: {'themeCSS': '.node, .node *, .cluster, .cluster * { filter: none !important; box-shadow: none !important; }'}}%%
@@ -226,16 +147,102 @@ flowchart LR
     style TENV fill:#1e1b4b,color:#ffffff,stroke-width:0px;
 ```
 
-### Integration testing flow
+### Layout
 
-You bring an assertion script, input records, and your real Flink SQL job.
-The runner publishes records to Kafka, your job runs on a real Flink cluster,
-and assertions are evaluated against the live result topic.
+```
+📂 unit
+├── 📂 script
+│   └── 📄 my-job.sql        # the Flink SQL job under test
+└── 📂 test
+    └── 📄 MyJobTest.java     # JUnit 4 test class
+```
 
-A second validation path (not shown for clarity): if a scenario also includes
-an `output/` folder, the runner consumes the corresponding output topics
-directly and checks that at least one expected message arrives within a
-timeout — no SQL assertion needed.
+### Example test
+
+```java
+import org.junit.Assert;
+import org.junit.Test;
+import io.acosom.flink.assertrunner.unit.FlinkSqlTestCase;
+
+public class MyJobTest extends FlinkSqlTestCase {
+
+    @Override
+    public String getScriptName() {
+        return "my-job.sql";
+    }
+
+    @Test
+    public void filtersToActiveRows() {
+        tEnv.executeSql("INSERT INTO INPUT_TABLE VALUES ('1', 'active'), ('2', 'inactive')");
+
+        var rows = selectRowsWithTimeout("OUTPUT_TABLE", 1);
+
+        Assert.assertEquals(1, rows.size());
+    }
+}
+```
+
+On `@Before`, `FlinkSqlTestCase`:
+
+1. Creates a fresh Paimon catalog rooted at a temp directory.
+2. Reads your SQL script and rewrites it for in-process execution (strips
+   `ADD JAR` statements, replaces `WITH (...)` connector configs with
+   empty ones so Paimon backs the tables, and converts `CREATE VIEW` →
+   `CREATE TEMPORARY VIEW`).
+3. Executes the rewritten statements against the test
+   `StreamTableEnvironment` (exposed to your test as `tEnv`).
+
+You then write `INSERT` statements for fixture data and use the helpers
+(`selectRowsWithTimeout`, `selectAllRowsWithTimeout`) to assert on results.
+
+---
+
+## Integration testing
+
+Integration tests exercise the full pipeline end-to-end. Your real Flink
+SQL job runs on a real Flink cluster, reading from and writing to real
+Kafka topics with real Schema Registry encoding. Assertions are written
+as additional Flink SQL files and evaluated by the runner against the
+live result topics.
+
+### How it works
+
+For each scenario folder under `INTEGRATION_TEST_DATA_DIR`, the runner:
+
+1. **Cancels any running Flink jobs** so each scenario starts clean.
+2. **Purges** all configured `INTEGRATION_OUTPUT_TOPICS` and per-scenario
+   input topics (delete + recreate) so consumer offsets and stale data
+   don't leak between scenarios.
+3. **Publishes** the JSON fixtures from `input/<topic>.json` to Kafka,
+   encoded as Avro using the schema in `input/schema/<topic>.json` and
+   the configured Schema Registry.
+4. **Submits** the Flink SQL job. The runner expects a job JAR uploaded
+   to the JobManager (typically a SQL-runner such as
+   [`flink-sql-runner`](https://github.com/acosom/flink-sql-runner) that
+   takes a SQL file path as its argument) with the entrypoint class given
+   by `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS`.
+5. **Validates** in either of two ways:
+   - **Output topic snapshot** (optional `output/<topic>.json` files):
+     the runner consumes from each topic and checks that at least one of
+     the expected messages arrives within a timeout.
+   - **SQL assertion** (optional `sqlAssertions/*.sql` files): each file
+     is itself a Flink SQL script that defines a `CREATE TABLE` over the
+     sink topic and ends with a `SELECT`. The runner submits the
+     assertion to the cluster, collects the result rows, and decides
+     pass/fail by row count.
+
+SQL assertions are evaluated in one of two modes:
+
+| Mode       | Passes when                                  | Use case                                          |
+|------------|----------------------------------------------|---------------------------------------------------|
+| `positive` | `SELECT` returns exactly `outputCount` rows  | "the job should emit these N expected records"    |
+| `negative` | `SELECT` returns zero rows                   | "this bad-state row must never appear"            |
+
+Because assertions are real Flink jobs reading from real Kafka, they cover
+serialization, watermarks, state, retract streams — every behavior an
+end-to-end deploy would.
+
+### Flow
 
 ```mermaid
 %%{init: {'themeCSS': '.node, .node *, .cluster, .cluster * { filter: none !important; box-shadow: none !important; }'}}%%
@@ -302,6 +309,78 @@ flowchart LR
     style TENV fill:#1e1b4b,color:#ffffff,stroke-width:0px;
     style CLUSTER fill:#0f1e3d,color:#ffffff,stroke-width:0px;
     style FLINK_RUNNER fill:#1e293b,color:#ffffff,stroke-width:0px;
+```
+
+### Scenario layout
+
+```
+📂 integration
+├── 📂 scenario-1
+│   ├── 📂 input
+│   │   ├── 📂 schema
+│   │   │   └── 📄 input_topic.json   # Avro schema (.avsc-style JSON)
+│   │   └── 📄 input_topic.json       # array of records to publish
+│   ├── 📂 output                      # optional: expected sink topic data
+│   │   └── 📄 output_topic.json
+│   └── 📂 sqlAssertions               # optional: SQL-based assertions
+│       └── 📄 some_check.sql
+└── 📂 scenario-2
+    └── …
+```
+
+### Assertion file format
+
+Each `.sql` file in `sqlAssertions/` is a Flink SQL script with **two
+extensions** on top of standard Flink SQL:
+
+**Environment variable substitution.** `@@VAR_NAME@@` placeholders are
+replaced with the corresponding environment variable value at runtime.
+Single quotes in the value are escaped to `''` so they're safe inside SQL
+string literals.
+
+**Inline assertion spec.** Anywhere in the file (typically as a SQL
+comment), include `key:value` tokens to control validation:
+
+| Token         | Default    | Meaning                                                                  |
+|---------------|------------|--------------------------------------------------------------------------|
+| `mode`        | `negative` | `positive` = expect an exact row count; `negative` = expect zero rows.   |
+| `outputCount` | `0`        | Number of rows expected in `positive` mode.                              |
+| `timeoutMs`   | `10000`    | How long to collect rows before evaluating (overridden by `INTEGRATION_TEST_SUCCESS_TIMEOUT_MS` if set). |
+
+**The last statement in the file must be a `SELECT`** — that's what
+produces the rows the runner validates.
+
+#### Negative example
+
+A negative assertion passes when the `SELECT` returns *no* rows. Use it
+to assert "this bad state never appears":
+
+```sql
+CREATE TABLE OUTPUT_SOURCE (
+    id   STRING NOT NULL,
+    name STRING NOT NULL
+) WITH (
+    'connector'    = 'kafka',
+    'topic'        = 'output_topic',
+    'properties.bootstrap.servers' = '@@INTEGRATION_KAFKA_SERVER@@',
+    'properties.group.id' = 'check-1',
+    'scan.startup.mode'   = 'earliest-offset',
+    'value.format'        = 'avro-confluent',
+    'value.avro-confluent.url' = '@@INTEGRATION_SCHEMA_REGISTRY_URL@@'
+);
+
+-- mode:negative
+SELECT * FROM OUTPUT_SOURCE WHERE id NOT IN ('1', '2', '3');
+```
+
+#### Positive example
+
+A positive assertion passes when the row count matches `outputCount`:
+
+```sql
+-- … same CREATE TABLE …
+
+SELECT * FROM OUTPUT_SOURCE; -- mode:positive outputCount:2
 ```
 
 ---
@@ -378,132 +457,6 @@ All settings come from environment variables. The CLI also accepts
 | `UNIT_TEST_JAVA_DIR`         | yes      | `/app/test`      | Directory containing `*.java` test classes.          |
 | `UNIT_TEST_SQL_DIR`          | no       | `/opt/flink/sql` | Directory the test classes reference for SQL scripts.|
 | `UNIT_TEST_INPUT_EVENTS_DIR` | no       | `/app/input`     | Directory for fixture data used by tests.            |
-
----
-
-## Integration tests
-
-### Scenario layout
-
-```
-📂 integration
-├── 📂 scenario-1
-│   ├── 📂 input
-│   │   ├── 📂 schema
-│   │   │   └── 📄 input_topic.json   # Avro schema (.avsc-style JSON)
-│   │   └── 📄 input_topic.json       # array of records to publish
-│   ├── 📂 output                      # optional: expected sink topic data
-│   │   └── 📄 output_topic.json
-│   └── 📂 sqlAssertions               # optional: SQL-based assertions
-│       └── 📄 some_check.sql
-└── 📂 scenario-2
-    └── …
-```
-
-### Assertion files
-
-Each `.sql` file in `sqlAssertions/` is a Flink SQL script with **two
-extensions** on top of standard Flink SQL:
-
-**Environment variable substitution.** `@@VAR_NAME@@` placeholders are replaced
-with the corresponding environment variable value at runtime. Single quotes in
-the value are escaped to `''` so they're safe inside SQL string literals.
-
-**Inline assertion spec.** Anywhere in the file (typically as a SQL comment),
-include `key:value` tokens to control validation:
-
-| Token         | Default    | Meaning                                                                  |
-|---------------|------------|--------------------------------------------------------------------------|
-| `mode`        | `negative` | `positive` = expect an exact row count; `negative` = expect zero rows.   |
-| `outputCount` | `0`        | Number of rows expected in `positive` mode.                              |
-| `timeoutMs`   | `10000`    | How long to collect rows before evaluating (overridden by `INTEGRATION_TEST_SUCCESS_TIMEOUT_MS` if set). |
-
-**The last statement in the file must be a `SELECT`** — that's what produces
-the rows the runner validates.
-
-#### Negative example
-
-A negative assertion passes when the `SELECT` returns *no* rows. Use it to
-assert "this bad state never appears":
-
-```sql
-CREATE TABLE OUTPUT_SOURCE (
-    id   STRING NOT NULL,
-    name STRING NOT NULL
-) WITH (
-    'connector'    = 'kafka',
-    'topic'        = 'output_topic',
-    'properties.bootstrap.servers' = '@@INTEGRATION_KAFKA_SERVER@@',
-    'properties.group.id' = 'check-1',
-    'scan.startup.mode'   = 'earliest-offset',
-    'value.format'        = 'avro-confluent',
-    'value.avro-confluent.url' = '@@INTEGRATION_SCHEMA_REGISTRY_URL@@'
-);
-
--- mode:negative
-SELECT * FROM OUTPUT_SOURCE WHERE id NOT IN ('1', '2', '3');
-```
-
-#### Positive example
-
-A positive assertion passes when the row count matches `outputCount`:
-
-```sql
--- … same CREATE TABLE …
-
-SELECT * FROM OUTPUT_SOURCE; -- mode:positive outputCount:2
-```
-
----
-
-## Unit tests
-
-### Layout
-
-```
-📂 unit
-├── 📂 script
-│   └── 📄 my-job.sql        # the Flink SQL job under test
-└── 📂 test
-    └── 📄 MyJobTest.java     # JUnit 4 test class
-```
-
-### Example test
-
-```java
-import org.junit.Assert;
-import org.junit.Test;
-import io.acosom.flink.assertrunner.unit.FlinkSqlTestCase;
-
-public class MyJobTest extends FlinkSqlTestCase {
-
-    @Override
-    public String getScriptName() {
-        return "my-job.sql";
-    }
-
-    @Test
-    public void filtersToActiveRows() {
-        tEnv.executeSql("INSERT INTO INPUT_TABLE VALUES ('1', 'active'), ('2', 'inactive')");
-
-        var rows = selectRowsWithTimeout("OUTPUT_TABLE", 1);
-
-        Assert.assertEquals(1, rows.size());
-    }
-}
-```
-
-What `FlinkSqlTestCase` does for you on `@Before`:
-
-1. Creates a fresh Paimon catalog rooted at a temp directory.
-2. Reads your SQL script and rewrites it for in-process execution: strips
-   `ADD JAR` statements, replaces `WITH (...)` connector configs with empty
-   ones (so Paimon backs the tables), and converts `CREATE VIEW` →
-   `CREATE TEMPORARY VIEW`.
-3. Executes the rewritten statements against the test `StreamTableEnvironment`.
-
-You then write `INSERT` statements for fixture data and use the helpers
-(`selectRowsWithTimeout`, `selectAllRowsWithTimeout`) to assert on results.
 
 ---
 
