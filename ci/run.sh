@@ -40,19 +40,43 @@ mkdir -p result flink-jars
 export ENV_FILE="$PROFILE"
 
 if [ "$SKIP_BUILD" = "0" ]; then
-  echo "==> Building assert-runner image (mvn -Pdocker package jib:dockerBuild)"
-  mvn -B -q -DskipTests -Pdocker package jib:dockerBuild
+  # Parallelize the slow work: two independent Maven builds + docker image
+  # pre-pulls. With cold caches this trims ~1-2 minutes off CI wall time.
+  echo "==> Building assert-runner image (mvn -Pdocker package jib:dockerBuild) [bg]"
+  (mvn -B -q -T 1C -Dmaven.test.skip=true -Pdocker package jib:dockerBuild) &
+  ASSERT_RUNNER_BUILD_PID=$!
 
   if [ "$PROFILE" = "integration" ]; then
-    echo "==> Building flink-sql-runner JAR from ${SQL_RUNNER_REPO}"
     if [ ! -d "$SQL_RUNNER_REPO" ]; then
       echo "ERROR: flink-sql-runner repo not found at $SQL_RUNNER_REPO" >&2
       echo "       Set SQL_RUNNER_REPO to its checkout path, or clone:" >&2
       echo "       git clone https://github.com/acosom/flink-sql-runner.git \"$SQL_RUNNER_REPO\"" >&2
+      kill "$ASSERT_RUNNER_BUILD_PID" 2>/dev/null || true
       exit 1
     fi
-    (cd "$SQL_RUNNER_REPO" && mvn -B -q -DskipTests package)
+
+    echo "==> Building flink-sql-runner JAR from ${SQL_RUNNER_REPO} [bg]"
+    (cd "$SQL_RUNNER_REPO" && mvn -B -q -T 1C -Dmaven.test.skip=true package) &
+    SQL_RUNNER_BUILD_PID=$!
+
+    echo "==> Pre-pulling cluster images [bg]"
+    docker pull -q docker.redpanda.com/redpandadata/redpanda:v24.2.4 &
+    REDPANDA_PULL_PID=$!
+    docker pull -q "$(grep -m1 'image: flink:' ci/docker-compose.yaml | awk '{print $2}')" &
+    FLINK_PULL_PID=$!
+  fi
+
+  echo "==> Waiting on assert-runner image build"
+  wait "$ASSERT_RUNNER_BUILD_PID" || { echo "assert-runner image build failed" >&2; exit 1; }
+
+  if [ "$PROFILE" = "integration" ]; then
+    echo "==> Waiting on flink-sql-runner JAR build"
+    wait "$SQL_RUNNER_BUILD_PID" || { echo "flink-sql-runner build failed" >&2; exit 1; }
     cp "$SQL_RUNNER_REPO/target/flink-sql-runner.jar" flink-jars/
+
+    echo "==> Waiting on cluster image pulls"
+    wait "$REDPANDA_PULL_PID" || echo "(redpanda pre-pull failed; compose will retry)" >&2
+    wait "$FLINK_PULL_PID" || echo "(flink pre-pull failed; compose will retry)" >&2
   fi
 fi
 
