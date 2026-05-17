@@ -76,10 +76,15 @@ The runner reuses your production Flink SQL by **swapping out the I/O
 layer** at table-creation time:
 
 - The runner parses each `CREATE TABLE … WITH ('connector' = 'kafka', …)`
-  statement and **strips the `WITH (…)` clause** before handing it to Flink.
+  statement and **removes the `WITH (…)` clause entirely** before handing
+  it to Flink — no empty parens left, just `CREATE TABLE foo (… columns …);`.
 - An [Apache Paimon](https://paimon.apache.org/) catalog rooted at a temp
-  directory is registered as the **active catalog**, so tables created
-  without a connector spec land in Paimon's in-process file storage.
+  directory is registered as the **active catalog** via `USE CATALOG`. In
+  Flink SQL, a `CREATE TABLE` without a `WITH (…)` clause defaults to the
+  active catalog's storage — so the now-connector-less table lands in
+  Paimon's in-process file storage. The pipeline SQL itself is unchanged
+  on disk; the rewrite happens in memory before the statement reaches the
+  planner.
 - `CREATE VIEW` is rewritten to `CREATE TEMPORARY VIEW` so it lives only
   for the test.
 - `ADD JAR` statements are dropped (UDF JARs are loaded a different way in
@@ -220,11 +225,12 @@ public class MyJobTest extends FlinkSqlTestCase {
 
 On `@Before`, `FlinkSqlTestCase`:
 
-1. Creates a fresh Paimon catalog rooted at a temp directory.
-2. Reads your SQL script and rewrites it for in-process execution (strips
-   `ADD JAR` statements, replaces `WITH (...)` connector configs with
-   empty ones so Paimon backs the tables, and converts `CREATE VIEW` →
-   `CREATE TEMPORARY VIEW`).
+1. Creates a fresh Paimon catalog rooted at a temp directory and switches
+   to it with `USE CATALOG paimon`.
+2. Reads your SQL script and rewrites it for in-process execution: strips
+   `ADD JAR` statements, removes `WITH (...)` connector clauses entirely
+   (so the active Paimon catalog backs the tables), and converts
+   `CREATE VIEW` → `CREATE TEMPORARY VIEW`.
 3. Executes the rewritten statements against the test
    `StreamTableEnvironment` (exposed to your test as `tEnv`).
 
