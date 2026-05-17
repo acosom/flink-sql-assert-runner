@@ -54,7 +54,7 @@ Pick the branch and tag matching your cluster's Flink:
 
 - [Unit testing](#unit-testing)
 - [Integration testing](#integration-testing)
-- [Quick start (Docker Compose)](#quick-start-docker-compose)
+- [Quick start (recommended: containerized CI flow)](#quick-start-recommended-containerized-ci-flow)
 - [Configuration reference](#configuration-reference)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
@@ -530,43 +530,85 @@ SELECT * FROM OUTPUT_SOURCE; -- mode:positive outputCount:2
 
 ---
 
-## Quick start (Docker Compose)
+## Quick start (recommended: containerized CI flow)
 
-A reference `docker-compose.yaml` boots Kafka, an Apicurio Schema Registry
-(Confluent-compatible), Kafka UI, and a Flink session cluster on the
-Flink-version that matches this branch.
+All CI plumbing lives under [`ci/`](ci/) — `docker-compose.yaml`,
+`run.sh`, the env files, and the container entrypoint. One command
+boots the whole stack ([Redpanda](https://redpanda.com/) broker +
+Schema Registry in one container + Flink JM/TM + the assert-runner
+image) and runs the suite end-to-end. GitHub Actions calls the same
+script, so local repros are bit-identical.
 
-1. **Drop your Flink SQL job JAR into `./flink-jars/`.** This is the JAR your
-   cluster will run — typically a SQL-runner that takes a SQL file path as
-   its argument (e.g. one built from
-   [`flink-sql-runner`](https://github.com/getindata/flink-sql-runner) or your
-   own implementation). The runner's `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS`
-   env var must match this JAR's main class.
+### Prerequisites
 
-2. **Adjust `integration.env`** for your scenario (Kafka topics, Flink job
-   entrypoint class, etc.).
+- Docker + `docker compose` plugin
+- JDK 17 + Maven (for building the assert-runner image and the SQL
+  runner JAR)
+- A sibling checkout of [`flink-sql-runner`](https://github.com/acosom/flink-sql-runner)
+  at `../sql-runner` (or pass `SQL_RUNNER_REPO=/path/to/repo` to the
+  script). Only required for the `integration` profile — `unit` doesn't
+  need it.
 
-3. **Boot the supporting services:**
+### Run the suites
 
-    ```bash
-    docker compose up -d kafka_broker apicurio jobmanager taskmanager
-    ```
+```bash
+# Unit tests — in-process Flink + Paimon, no external services
+./ci/run.sh unit
 
-4. **Build and run the assert runner:**
+# Integration tests — full pipeline against the containerized stack
+./ci/run.sh integration
+```
 
-    ```bash
-    mvn package -DskipTests
-    set -a; source integration.env; set +a
-    java -jar target/flink-sql-assert-runner.jar
-    ```
+The script:
 
-   Or via the Docker image:
+1. Builds the assert-runner image (`mvn jib:dockerBuild`).
+2. For `integration`: builds the `flink-sql-runner` JAR from the sibling
+   checkout and stages it into `./flink-jars/` so the JobManager picks
+   it up.
+3. Runs `docker compose --profile <unit|integration> up --abort-on-container-exit --exit-code-from assert-runner`.
+4. Exits with the assert runner's exit code (zero = pass, non-zero = at
+   least one test failed).
+5. Tears down the stack on exit.
 
-    ```bash
-    mvn jib:dockerBuild
-    docker run --rm --network=host --env-file=integration.env \
-        flink-sql-assert-runner
-    ```
+The plain-text result file lands at `./result/result.txt` — CI uploads
+it as an artifact. To skip the build steps when iterating on compose
+or scripts, set `SKIP_BUILD=1`.
+
+### Deployment notes
+
+The bundled docker-compose runs Flink in **session mode** (one shared
+JM + TMs, jobs submitted via REST). That's fine for CI because each run
+only submits one pipeline — there's nothing for env vars to leak into.
+
+In **production on Kubernetes**, use the
+[Flink Kubernetes Operator](https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-stable/)
+and run each pipeline as its own `FlinkDeployment` (application mode).
+Then env on the deployment's `podTemplate` is naturally per-pipeline.
+Point the assert runner at the FlinkDeployment's JobManager REST URL
+via `INTEGRATION_FLINK_JOBMANAGER_SERVER` — no other changes needed.
+
+### Alternative: against an existing Flink cluster
+
+If you already have a Flink cluster running (local IDE, dev cluster,
+remote staging), you can skip the docker-compose stack and run the
+runner directly against it:
+
+```bash
+mvn package -DskipTests
+set -a; source ci/integration.env; set +a   # or your own env file
+java -jar target/flink-sql-assert-runner.jar
+```
+
+The cluster needs:
+
+- Your SQL-runner JAR pre-uploaded to the JobManager (
+  `INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS` must match its main class).
+- Whatever env vars your SQL runner consumes for substitution on the
+  cluster side (the pipeline SQL's `@@VAR@@` resolution is the SQL
+  runner's job, not the assert runner's).
+- `INTEGRATION_KAFKA_SERVER`, `INTEGRATION_SCHEMA_REGISTRY_URL`,
+  `INTEGRATION_FLINK_JOBMANAGER_SERVER` pointing at addresses
+  reachable from your machine.
 
 ---
 

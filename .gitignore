@@ -24,3 +24,5 @@ pom.xml.versionsBackup
 /dependency-reduced-pom.xml
 
 result.txt
+/result/
+/flink-jars/
