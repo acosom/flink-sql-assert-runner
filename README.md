@@ -235,7 +235,53 @@ On `@Before`, `FlinkSqlTestCase`:
    `StreamTableEnvironment` (exposed to your test as `tEnv`).
 
 You then write `INSERT` statements for fixture data and use the helpers
-(`selectRowsWithTimeout`, `selectAllRowsWithTimeout`) to assert on results.
+below to read results back out of the sink.
+
+### Test helpers
+
+A Flink streaming `SELECT` is unbounded — without a stopping condition it
+never returns. `FlinkSqlTestCase` provides two helpers that wrap
+`tEnv.executeSql("SELECT * FROM <table>")` in a bounded collect-loop, both
+returning `List<Row>`:
+
+```java
+List<Row> selectRowsWithTimeout(String table, Integer expectedSize)
+List<Row> selectRowsWithTimeout(String table, Integer expectedSize, Integer timeoutInSeconds)
+List<Row> selectAllRowsWithTimeout(String table, Integer timeoutInSeconds)
+```
+
+| Argument             | What it means                                                                                              |
+|----------------------|------------------------------------------------------------------------------------------------------------|
+| `table`              | Table or view name to `SELECT * FROM`.                                                                     |
+| `expectedSize`       | **Early-exit threshold.** Stop polling as soon as this many rows have been collected. Lets a passing test return fast instead of always waiting out the full timeout. |
+| `timeoutInSeconds`   | Hard upper bound. The collector cancels and returns whatever it has gathered so far when this fires. Default `15` for the two-arg overload. |
+
+`selectAllRowsWithTimeout` has no early exit — it always waits the full
+`timeoutInSeconds` and returns everything that showed up. Use it when
+you want to assert that *only* N rows appeared (i.e. no rows leaked in
+after the ones you expected).
+
+Typical patterns:
+
+```java
+// "I expect exactly 1 row in OUTPUT_TABLE" — returns fast on success,
+// times out after 15s on failure.
+var rows = selectRowsWithTimeout("OUTPUT_TABLE", 1);
+Assert.assertEquals(1, rows.size());
+
+// "I expect 10 rows but the pipeline may be slow; give it 60s."
+var rows = selectRowsWithTimeout("OUTPUT_TABLE", 10, 60);
+
+// "After 5s nothing more should show up — assert no leakage."
+var rows = selectAllRowsWithTimeout("OUTPUT_TABLE", 5);
+Assert.assertEquals(3, rows.size());
+```
+
+Note the **early-exit caveat**: `selectRowsWithTimeout(table, N)` returns
+as soon as `N` rows are seen, so it can't catch *over-production* (the
+pipeline emitting `N+1` rows when it should emit exactly `N`). When you
+need an exact-count assertion, prefer `selectAllRowsWithTimeout` so the
+collector keeps reading until the timeout.
 
 ---
 
