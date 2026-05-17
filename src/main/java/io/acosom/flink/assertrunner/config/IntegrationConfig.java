@@ -14,6 +14,7 @@ public final class IntegrationConfig {
     private final String flinkJobmanagerUrl;
     private final List<String> flinkJobProgramArgs;
     private final String flinkJobEntrypointClass;
+    private final String assertRunnerJarPath;
     private final List<String> outputTopics;
     private final Long successTimeoutMs;
 
@@ -24,6 +25,9 @@ public final class IntegrationConfig {
         this.flinkJobmanagerUrl = require("flinkJobmanagerUrl", b.flinkJobmanagerUrl);
         this.flinkJobProgramArgs = requireList("flinkJobProgramArgs", b.flinkJobProgramArgs);
         this.flinkJobEntrypointClass = require("flinkJobEntrypointClass", b.flinkJobEntrypointClass);
+        this.assertRunnerJarPath = b.assertRunnerJarPath == null || b.assertRunnerJarPath.isBlank()
+                ? "target/flink-sql-assert-runner.jar"
+                : b.assertRunnerJarPath;
         this.outputTopics = b.outputTopics == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(b.outputTopics);
@@ -62,6 +66,19 @@ public final class IntegrationConfig {
         return flinkJobEntrypointClass;
     }
 
+    /**
+     * Filesystem path to the assert-runner's own JAR (this artifact).
+     * {@link io.acosom.flink.assertrunner.flink.SqlAssertionExecutor} ships
+     * this JAR to the remote Flink cluster via {@code createRemoteEnvironment}
+     * so assertion SQL has the runner's classes on its operator classpath.
+     * Defaults to {@code target/flink-sql-assert-runner.jar} (the Maven-built
+     * location); override via {@code INTEGRATION_ASSERT_RUNNER_JAR_PATH} for
+     * containerised runs where the JAR lives elsewhere (e.g. /app/...jar).
+     */
+    public String getAssertRunnerJarPath() {
+        return assertRunnerJarPath;
+    }
+
     public List<String> getOutputTopics() {
         return outputTopics;
     }
@@ -95,6 +112,7 @@ public final class IntegrationConfig {
         private String flinkJobmanagerUrl;
         private List<String> flinkJobProgramArgs;
         private String flinkJobEntrypointClass;
+        private String assertRunnerJarPath;
         private List<String> outputTopics;
         private Long successTimeoutMs;
 
@@ -103,6 +121,7 @@ public final class IntegrationConfig {
         public Builder schemaRegistryUrl(String v) { this.schemaRegistryUrl = v; return this; }
         public Builder flinkJobmanagerUrl(String v) { this.flinkJobmanagerUrl = v; return this; }
         public Builder flinkJobEntrypointClass(String v) { this.flinkJobEntrypointClass = v; return this; }
+        public Builder assertRunnerJarPath(String v) { this.assertRunnerJarPath = v; return this; }
         public Builder successTimeoutMs(Long v) { this.successTimeoutMs = v; return this; }
 
         /**

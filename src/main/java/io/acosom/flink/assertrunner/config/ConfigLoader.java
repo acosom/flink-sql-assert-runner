@@ -30,6 +30,7 @@ public final class ConfigLoader {
                 .flinkJobmanagerUrl(env.get("INTEGRATION_FLINK_JOBMANAGER_SERVER"))
                 .flinkJobProgramArgs(env.get("INTEGRATION_FLINK_JOB_PROGRAM_ARGS"))
                 .flinkJobEntrypointClass(env.get("INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS"))
+                .assertRunnerJarPath(env.get("INTEGRATION_ASSERT_RUNNER_JAR_PATH"))
                 .outputTopicsCsv(env.get("INTEGRATION_OUTPUT_TOPICS"))
                 .successTimeoutMs(parseLong(env.get("INTEGRATION_TEST_SUCCESS_TIMEOUT_MS")))
                 .build();
