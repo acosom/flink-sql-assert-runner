@@ -350,7 +350,15 @@
                         <version>${jib-maven-plugin.version}</version>
                         <configuration>
                             <from>
-                                <image>eclipse-temurin:17-jre</image>
+                                <!--
+                                    Full JDK, not JRE: the runner compiles
+                                    user-supplied .java test classes at runtime
+                                    via the javac API, so it needs the compiler
+                                    on the classpath. A JRE returns null from
+                                    ToolProvider.getSystemJavaCompiler() and
+                                    crashes UnitSuiteRunner with an NPE.
+                                -->
+                                <image>eclipse-temurin:17-jdk</image>
                             </from>
                             <container>
                                 <entrypoint>/app/entrypoint.sh</entrypoint>
