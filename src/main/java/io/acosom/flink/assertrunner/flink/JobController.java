@@ -43,9 +43,9 @@ public final class JobController implements AutoCloseable {
     private final RestClient restClient;
     private final URI jobmanagerUri;
     private final String entrypointClass;
-    private final String sqlFileInJar;
+    private final List<String> programArgs;
 
-    public JobController(String jobmanagerUrl, String entrypointClass, String sqlFileInJar) {
+    public JobController(String jobmanagerUrl, String entrypointClass, List<String> programArgs) {
         try {
             this.restClient = new RestClient(new Configuration(), Executors.newSingleThreadExecutor());
         } catch (ConfigurationException e) {
@@ -53,7 +53,7 @@ public final class JobController implements AutoCloseable {
         }
         this.jobmanagerUri = URI.create(jobmanagerUrl);
         this.entrypointClass = entrypointClass;
-        this.sqlFileInJar = sqlFileInJar;
+        this.programArgs = programArgs;
     }
 
     public void startJob() {
@@ -122,9 +122,12 @@ public final class JobController implements AutoCloseable {
     }
 
     private JobID runJobFromJar(String jarId) {
+        // programArgs are passed verbatim — the assert runner makes no
+        // assumption about the Flink job JAR's CLI convention. The user
+        // configures the exact arg vector via INTEGRATION_FLINK_JOB_PROGRAM_ARGS.
         JarRunRequestBody body = new JarRunRequestBody(
                 entrypointClass,
-                List.of("/opt/flink/sql/" + sqlFileInJar),
+                programArgs,
                 null,  // parallelism
                 null,  // jobId
                 null,  // allowNonRestoredState

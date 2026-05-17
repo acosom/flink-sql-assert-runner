@@ -32,9 +32,10 @@ services:
       retries: 20
 
   ## FLINK
-  ## Drop your SQL-runner job JAR into ../flink-jars/ (repo root) — it will be
-  ## uploaded to the JobManager and submitted via Flink's REST API by the
-  ## assert runner. ci/run.sh stages it there automatically.
+  ## Plain Flink session cluster. ci/run.sh uploads the SQL-runner JAR to the
+  ## JM via the REST /jars/upload endpoint after the healthcheck passes — no
+  ## /opt/flink/usrlib auto-load involved. The /opt/flink/sql mount is what
+  ## the submitted Flink job uses to read its SQL file at runtime.
   jobmanager:
     container_name: jobmanager
     image: flink:2.0.1-scala_2.12-java17
@@ -43,7 +44,6 @@ services:
       - "8081:8081"
     volumes:
       - ../src/main/resources/data/sql-script/:/opt/flink/sql
-      - ../flink-jars/:/opt/flink/usrlib
     command: jobmanager
     # Container "running" != Flink REST is up. Probe port 8081 before
     # downstream services try to talk to it. CMD-SHELL on Ubuntu uses

@@ -28,7 +28,7 @@ public final class ConfigLoader {
                 .kafkaBootstrap(env.get("INTEGRATION_KAFKA_SERVER"))
                 .schemaRegistryUrl(env.get("INTEGRATION_SCHEMA_REGISTRY_URL"))
                 .flinkJobmanagerUrl(env.get("INTEGRATION_FLINK_JOBMANAGER_SERVER"))
-                .flinkJobSqlFile(env.get("INTEGRATION_TEST_JOB_SQL_FILE"))
+                .flinkJobProgramArgs(env.get("INTEGRATION_FLINK_JOB_PROGRAM_ARGS"))
                 .flinkJobEntrypointClass(env.get("INTEGRATION_FLINK_JOB_ENTRYPOINT_CLASS"))
                 .outputTopicsCsv(env.get("INTEGRATION_OUTPUT_TOPICS"))
                 .successTimeoutMs(parseLong(env.get("INTEGRATION_TEST_SUCCESS_TIMEOUT_MS")))

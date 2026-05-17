@@ -48,7 +48,7 @@ public final class IntegrationSuite {
         this.jobController = new JobController(
                 config.getFlinkJobmanagerUrl(),
                 config.getFlinkJobEntrypointClass(),
-                config.getFlinkJobSqlFile());
+                config.getFlinkJobProgramArgs());
         this.assertionExecutor = new SqlAssertionExecutor(
                 config.getFlinkJobmanagerUrl(),
                 "target/flink-sql-assert-runner.jar",
