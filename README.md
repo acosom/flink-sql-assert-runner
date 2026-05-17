@@ -223,16 +223,22 @@ public class MyJobTest extends FlinkSqlTestCase {
 }
 ```
 
-On `@Before`, `FlinkSqlTestCase`:
+`FlinkSqlTestCase` declares a JUnit `@Before` method that runs
+automatically before every `@Test` in your subclass — you don't need to
+write one yourself, and the example above doesn't. That inherited setup:
 
 1. Creates a fresh Paimon catalog rooted at a temp directory and switches
    to it with `USE CATALOG paimon`.
-2. Reads your SQL script and rewrites it for in-process execution: strips
+2. Reads your SQL script (resolved via `getScriptName()` against
+   `UNIT_TEST_SQL_DIR`) and rewrites it for in-process execution: strips
    `ADD JAR` statements, removes `WITH (...)` connector clauses entirely
    (so the active Paimon catalog backs the tables), and converts
    `CREATE VIEW` → `CREATE TEMPORARY VIEW`.
 3. Executes the rewritten statements against the test
-   `StreamTableEnvironment` (exposed to your test as `tEnv`).
+   `StreamTableEnvironment` (exposed to your subclass as `tEnv`).
+
+A matching inherited `@After` tears the temp catalog directory down, so
+each `@Test` starts from a clean slate.
 
 You then write `INSERT` statements for fixture data and use the helpers
 below to read results back out of the sink.
