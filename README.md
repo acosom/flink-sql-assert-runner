@@ -428,9 +428,26 @@ Each `.sql` file in `sqlAssertions/` is a Flink SQL script with **two
 extensions** on top of standard Flink SQL:
 
 **Environment variable substitution.** `@@VAR_NAME@@` placeholders are
-replaced with the corresponding environment variable value at runtime.
-Single quotes in the value are escaped to `''` so they're safe inside SQL
-string literals.
+replaced with the corresponding environment variable value before the
+assertion is submitted to the cluster. Single quotes in the value are
+escaped to `''` so they're safe inside SQL string literals.
+
+> **Note:** there are *two* substitution layers in the integration path,
+> both using the same `@@VAR@@` convention but applied at different
+> times:
+>
+> - **Pipeline SQL** (your actual Flink job, e.g. `my-pipeline.sql`) —
+>   substitution is done on the cluster by your SQL runner (e.g.
+>   [`flink-sql-runner`](https://github.com/acosom/flink-sql-runner)),
+>   reading env vars from the Flink pod's environment.
+> - **Assertion SQL** (`sqlAssertions/*.sql`) — substitution is done
+>   locally by the assert runner itself, reading env vars from its own
+>   process, *before* the assertion is sent to the cluster.
+>
+> The convention is intentionally identical so the same `@@INTEGRATION_KAFKA_SERVER@@`
+> resolves to the same value whether it appears in your pipeline SQL or
+> in an assertion — but the actual replacement happens in two different
+> processes.
 
 **Inline assertion spec.** Anywhere in the file (typically as a SQL
 comment), include `key:value` tokens to control validation:
