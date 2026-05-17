@@ -422,6 +422,42 @@ flowchart LR
     └── …
 ```
 
+### Output snapshot format
+
+Each `.json` file in a scenario's `output/` directory is a **JSON array
+of expected records**, one record per array element, matched against
+records consumed from the Kafka topic whose name matches the file
+(`output/users.json` → topic `users`). The check is:
+
+- The runner consumes from the topic for up to ~30 seconds.
+- For each expected record in the file, it polls until it sees an actual
+  record that **equals** (field-for-field) the expected one, or the
+  timeout fires.
+- The scenario passes if every expected record was matched at least
+  once; surplus records on the topic don't fail the check.
+
+This is intentionally a **smoke check**, not a full topic-equality
+assertion: it answers "did the expected payloads show up at all?" Use
+`sqlAssertions/` when you need exact row counts or richer predicates.
+
+Example `output/asset_summary.json`:
+
+```json
+[
+  { "id": "1", "uuid": "abc1", "name": "TEST 1" },
+  { "id": "2", "uuid": "abc2", "name": "TEST 2" }
+]
+```
+
+The values are the **decoded payloads** — Avro-encoded messages on the
+topic are deserialized through the configured Schema Registry first, so
+you write the human-readable record here, not the binary. Field order
+doesn't matter; nested objects/arrays are compared structurally via the
+standard Jackson `JsonNode.equals`.
+
+> If the scenario folder contains both `output/` and `sqlAssertions/`,
+> both are evaluated and both must pass for the scenario to succeed.
+
 ### Assertion file format
 
 Each `.sql` file in `sqlAssertions/` is a Flink SQL script with **two
