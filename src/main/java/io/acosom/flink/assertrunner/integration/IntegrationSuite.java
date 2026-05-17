@@ -51,7 +51,7 @@ public final class IntegrationSuite {
                 config.getFlinkJobProgramArgs());
         this.assertionExecutor = new SqlAssertionExecutor(
                 config.getFlinkJobmanagerUrl(),
-                "target/flink-sql-assert-runner.jar",
+                config.getAssertRunnerJarPath(),
                 config.getSuccessTimeoutMs());
         this.fixtureLoader = new KafkaFixtureLoader(
                 config.getKafkaBootstrap(), config.getSchemaRegistryUrl());

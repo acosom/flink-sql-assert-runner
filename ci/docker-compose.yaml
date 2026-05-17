@@ -131,6 +131,10 @@ services:
       # the volume mount below stages the same files at /app/integration.
       INTEGRATION_TEST_DATA_DIR: /app/integration
       RESULT_FILE: /app/result/result.txt
+      # The assert-runner ships its own JAR to the cluster (for assertion
+      # SQL execution via createRemoteEnvironment). Default points at the
+      # Maven-built target/ path; inside the container the JAR is here.
+      INTEGRATION_ASSERT_RUNNER_JAR_PATH: /app/flink-sql-assert-runner.jar
       # Unit-mode paths (also mounted below). Ignored when RUN_UNIT_TESTS=false.
       UNIT_TEST_SQL_DIR: /app/unit/script
       UNIT_TEST_JAVA_DIR: /app/unit/test
