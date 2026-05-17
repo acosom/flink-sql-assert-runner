@@ -27,6 +27,80 @@ License: Apache 2.0.
 
 ---
 
+## Concepts
+
+Flink SQL is hard to test the usual ways: the SQL references Kafka topics,
+Schema Registry, JDBC catalogs — everything outside the JVM. Most teams either
+skip tests entirely or maintain a parallel Java pipeline just to test the
+logic. This runner removes that tradeoff by leaning on three ideas:
+
+### 1. Unit tests run the real SQL against a swapped-out backend
+
+The Flink SQL you ship to production is the same SQL the unit test runs —
+**no rewrite, no fork, no shadow pipeline**. The trick is at table-creation
+time:
+
+- The runner parses each `CREATE TABLE … WITH ('connector' = 'kafka', …)`
+  statement and **strips the `WITH (…)` clause** before handing it to Flink.
+- An [Apache Paimon](https://paimon.apache.org/) catalog rooted at a temp
+  directory is registered as the active catalog, so tables created without
+  a connector spec are backed by Paimon's in-process storage.
+- `CREATE VIEW` is rewritten to `CREATE TEMPORARY VIEW` so it lives only for
+  the test.
+- `ADD JAR` statements are dropped (UDF JARs are loaded a different way in
+  unit mode).
+
+Net effect: the SQL parser/planner/executor are the **real Flink runtime**,
+running the **real query plan** — only the I/O layer is swapped. Sources
+become tables you `INSERT INTO` directly from the test; sinks become tables
+you `SELECT FROM`. No mocking, no fake operators, no behavior drift between
+test and production.
+
+### 2. Tests are `.java` source files compiled at runtime
+
+Test classes live as plain `.java` files in a directory the runner scans at
+startup. They're compiled in-process via the JDK's
+[javac API](https://docs.oracle.com/en/java/javase/17/docs/api/java.compiler/javax/tools/JavaCompiler.html)
+and loaded into a fresh classloader before JUnit runs.
+
+This means a test author **doesn't rebuild or redeploy the runner** to add a
+test — drop a new `MyJobTest.java` next to the SQL script, mount the folder
+into the runner container, and the next run picks it up. Same idea as
+hot-reloading a script, but for compiled JVM tests.
+
+### 3. Integration assertions are themselves Flink SQL
+
+In integration mode, the runner deploys your real Flink job against real
+Kafka, then evaluates assertions written as additional Flink SQL files
+(`sqlAssertions/*.sql`). Each assertion script:
+
+- Defines a `CREATE TABLE` over the sink topic (with full Kafka + Schema
+  Registry config — these resolve via `@@VAR@@` env substitution).
+- Ends with a `SELECT` whose row count determines pass/fail, in one of two
+  modes:
+
+  | Mode       | Passes when                              | Use case                                    |
+  |------------|------------------------------------------|---------------------------------------------|
+  | `positive` | `SELECT` returns exactly `outputCount` rows | "the job should emit these N expected records" |
+  | `negative` | `SELECT` returns zero rows               | "this bad-state row must never appear"      |
+
+Because assertions are real Flink jobs reading from real Kafka, they cover
+serialization, watermarks, state, retract streams — every behavior an end-to-end
+deploy would. Writing them in SQL keeps the test surface in the same language
+as the pipeline itself.
+
+### Putting it together
+
+| Mode        | Source of truth                    | Backend                  | Test files            | Runs against        |
+|-------------|------------------------------------|--------------------------|-----------------------|---------------------|
+| Unit        | The same `*.sql` pipeline script   | Paimon (in-process)      | `*.java` (JUnit 4)    | Local JVM           |
+| Integration | The same `*.sql` pipeline script   | Real Kafka + Flink + SR  | `*.sql` (assertions)  | A real Flink cluster|
+
+The pipeline SQL is reused unchanged between the two — unit mode validates
+logic without infrastructure, integration mode validates the whole stack.
+
+---
+
 ## Flink version compatibility
 
 The runner ships Flink client libraries that talk to your cluster (REST API,
@@ -52,6 +126,7 @@ Pick the branch and tag matching your cluster's Flink:
 
 ## Table of contents
 
+- [Concepts](#concepts)
 - [How it works](#how-it-works)
 - [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [Configuration reference](#configuration-reference)
