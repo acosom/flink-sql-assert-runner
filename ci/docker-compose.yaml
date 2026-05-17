@@ -45,15 +45,17 @@ services:
       - ../src/main/resources/data/sql-script/:/opt/flink/sql
       - ../flink-jars/:/opt/flink/usrlib
     command: jobmanager
-    # Container "running" != Flink REST is up. Probe the /config endpoint
-    # before downstream services try to talk to it. Uses bash's /dev/tcp
-    # since the temurin base image has no curl/wget.
+    # Container "running" != Flink REST is up. Probe port 8081 before
+    # downstream services try to talk to it. CMD-SHELL on Ubuntu uses
+    # /bin/sh = dash, which doesn't support bash's /dev/tcp — invoke
+    # bash explicitly via the CMD form. Cold start of the JM can take
+    # 30-60s on a fresh image pull, hence the generous start_period.
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
       interval: 3s
       timeout: 2s
-      retries: 20
-      start_period: 10s
+      retries: 30
+      start_period: 60s
     depends_on:
       redpanda:
         condition: service_healthy
