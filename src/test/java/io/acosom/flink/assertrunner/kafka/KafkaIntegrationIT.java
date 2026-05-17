@@ -15,9 +15,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.containers.Network;
+import org.testcontainers.redpanda.RedpandaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.File;
@@ -36,22 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("integration")
 class KafkaIntegrationIT {
 
-    private static final Network NETWORK = Network.newNetwork();
-
-    private static final KafkaContainer KAFKA = new KafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.5.1"))
-            .withNetwork(NETWORK)
-            .withNetworkAliases("kafka");
-
-    private static final GenericContainer<?> SCHEMA_REGISTRY = new GenericContainer<>(
-            DockerImageName.parse("confluentinc/cp-schema-registry:7.5.1"))
-            .withNetwork(NETWORK)
-            .withNetworkAliases("schema-registry")
-            .withExposedPorts(8081)
-            .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
-            .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
-            .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS",
-                    "PLAINTEXT://kafka:9092");
+    private static final RedpandaContainer REDPANDA = new RedpandaContainer(
+            DockerImageName.parse("docker.redpanda.com/redpandadata/redpanda:v24.2.4"));
 
     private static String bootstrapServers;
     private static String schemaRegistryUrl;
@@ -68,18 +52,14 @@ class KafkaIntegrationIT {
 
     @BeforeAll
     static void startContainers() {
-        KAFKA.start();
-        SCHEMA_REGISTRY.start();
-        bootstrapServers = KAFKA.getBootstrapServers();
-        schemaRegistryUrl = "http://" + SCHEMA_REGISTRY.getHost()
-                + ":" + SCHEMA_REGISTRY.getMappedPort(8081);
+        REDPANDA.start();
+        bootstrapServers = REDPANDA.getBootstrapServers();
+        schemaRegistryUrl = REDPANDA.getSchemaRegistryAddress();
     }
 
     @AfterAll
     static void stopContainers() {
-        SCHEMA_REGISTRY.stop();
-        KAFKA.stop();
-        NETWORK.close();
+        REDPANDA.stop();
     }
 
     @Test
